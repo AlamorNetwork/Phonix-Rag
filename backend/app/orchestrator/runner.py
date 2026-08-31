@@ -26,15 +26,13 @@ class _RunConfig:
     """Agent/model settings copied out of the DB up front, so the run loop never has to keep
     ORM objects (and therefore a session) alive across model calls and approval waits."""
 
+    agent_id: str
     role: str
     system_prompt: str
     input_message: str
     allowed_tools: list[str]
     budget_usd: float
     max_iterations: int
-    model_id: str
-    input_price_per_1k: float
-    output_price_per_1k: float
 
 
 class AgentRunner:
@@ -70,19 +68,19 @@ class AgentRunner:
             run = await db.get(AgentRun, run_id)
             agent = await db.get(Agent, run.agent_id)
             project_id = run.project_id
-            model = await self._resolve_model(db, agent)
+            # Resolved here only to fail fast if the selected model isn't registered; the loop
+            # re-resolves it every iteration so a mid-run switch is picked up.
+            await self._resolve_model(db, agent)
             agent_role = agent.role
             agent_timeout = agent.timeout_seconds
             run_config = _RunConfig(
+                agent_id=agent.id,
                 role=agent.role,
                 system_prompt=agent.system_prompt,
                 input_message=run.input_message,
                 allowed_tools=list(agent.allowed_tools),
                 budget_usd=agent.budget_usd,
                 max_iterations=agent.max_iterations,
-                model_id=model.model_id,
-                input_price_per_1k=model.input_price_per_1k,
-                output_price_per_1k=model.output_price_per_1k,
             )
 
             run.status = "running"
@@ -134,7 +132,11 @@ class AgentRunner:
         )
 
     async def _resolve_model(self, db, agent: Agent) -> Model:
-        model_id = agent.allowed_models[0] if agent.allowed_models else self.settings.liara_default_model
+        model_id = (
+            agent.selected_model_id
+            or (agent.allowed_models[0] if agent.allowed_models else None)
+            or self.settings.liara_default_model
+        )
         result = await db.execute(select(Model).where(Model.model_id == model_id))
         model = result.scalars().first()
         if model is None:
@@ -150,11 +152,21 @@ class AgentRunner:
         final_text = None
 
         for _ in range(config.max_iterations):
+            # Re-read the model every iteration: a human (via the API) or the agent itself
+            # (via model.switch) can change it mid-run, and the change must take effect on the
+            # very next request rather than at the next run.
+            async with self.session_maker() as db:
+                agent = await db.get(Agent, config.agent_id)
+                model = await self._resolve_model(db, agent)
+                model_id = model.model_id
+                input_price_per_1k = model.input_price_per_1k
+                output_price_per_1k = model.output_price_per_1k
+
             estimated_input_tokens = self.cost_engine.estimate_tokens(json.dumps(messages))
             estimated_output_tokens = 500
             estimated_cost = self.provider.estimate_cost(
-                input_price_per_1k=config.input_price_per_1k,
-                output_price_per_1k=config.output_price_per_1k,
+                input_price_per_1k=input_price_per_1k,
+                output_price_per_1k=output_price_per_1k,
                 estimated_input_tokens=estimated_input_tokens,
                 estimated_output_tokens=estimated_output_tokens,
             )
@@ -165,19 +177,19 @@ class AgentRunner:
 
             await self.event_bus.publish(
                 self.session_maker, project_id=project_id, agent_run_id=run_id,
-                event_type="model.request", payload={"model": config.model_id},
+                event_type="model.request", payload={"model": model_id},
             )
-            chat_result = await self.provider.chat(model=config.model_id, messages=messages, tools=tools)
+            chat_result = await self.provider.chat(model=model_id, messages=messages, tools=tools)
             async with self.session_maker() as db:
                 model_request = await self.cost_engine.record(
                     db,
                     agent_run_id=run_id,
                     provider=self.provider,
-                    model_id=config.model_id,
+                    model_id=model_id,
                     estimated_cost=estimated_cost,
                     chat_result=chat_result,
-                    input_price_per_1k=config.input_price_per_1k,
-                    output_price_per_1k=config.output_price_per_1k,
+                    input_price_per_1k=input_price_per_1k,
+                    output_price_per_1k=output_price_per_1k,
                 )
                 actual_cost = model_request.actual_cost
             await self.event_bus.publish(
@@ -219,6 +231,7 @@ class AgentRunner:
                         tool_name=tool_call.name,
                         params=tool_call.arguments,
                         requested_by=config.role,
+                        agent_id=config.agent_id,
                     )
                     messages.append(
                         {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result)}

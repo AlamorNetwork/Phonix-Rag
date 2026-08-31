@@ -10,7 +10,7 @@ from app.core.logging import configure_logging
 from app.core.security import hash_password
 from app.database.session import async_session_maker
 from app.models.user import User
-from app.models_registry.service import seed_liara_provider
+from app.models_registry.service import seed_liara_provider, sync_models_from_provider
 
 
 async def _seed_initial_data() -> None:
@@ -21,6 +21,7 @@ async def _seed_initial_data() -> None:
             db.add(User(email=settings.admin_email, password_hash=hash_password(settings.admin_password)))
             await db.commit()
         await seed_liara_provider(db, settings)
+        await sync_models_from_provider(db, settings)
 
 
 @asynccontextmanager

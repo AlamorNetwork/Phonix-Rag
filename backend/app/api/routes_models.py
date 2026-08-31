@@ -3,10 +3,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import Settings, get_settings
 from app.database.session import get_db
 from app.models.model import Model
 from app.models.provider import Provider
 from app.models.user import User
+from app.models_registry.service import sync_models_from_provider
 from app.schemas.model import ModelResponse, ProviderResponse
 
 router = APIRouter(tags=["models"])
@@ -22,3 +24,14 @@ async def list_models(db: AsyncSession = Depends(get_db), _current_user: User = 
 async def list_providers(db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)) -> list[Provider]:
     result = await db.execute(select(Provider))
     return list(result.scalars().all())
+
+
+@router.post("/models/sync")
+async def sync_models(
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    """Re-pull the provider's catalogue on demand, so new models show up without a restart."""
+    count = await sync_models_from_provider(db, settings)
+    return {"synced": count}

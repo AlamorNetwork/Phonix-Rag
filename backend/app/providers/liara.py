@@ -68,13 +68,40 @@ class LiaraProvider(ModelProvider):
             cached_tokens=(usage_data.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
         )
 
+        provider_cost = usage_data.get("cost")
         return ChatResult(
             content=choice.get("content"),
             tool_calls=tool_calls,
             usage=usage,
             latency_ms=latency_ms,
+            provider_cost=float(provider_cost) if provider_cost is not None else None,
             raw=data,
         )
+
+    async def list_models(self) -> list[dict[str, Any]]:
+        """Fetch the gateway's model catalogue. Prices come back per single token; they are
+        converted to per-1k here so the registry stores one consistent unit."""
+        async with httpx.AsyncClient(timeout=self.timeout, transport=self._transport) as client:
+            response = await client.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+        response.raise_for_status()
+        data = response.json()
+        raw_models = data.get("data") or data.get("models") or []
+
+        models = []
+        for m in raw_models:
+            pricing = m.get("pricing") or {}
+            models.append(
+                {
+                    "model_id": m.get("id"),
+                    "context_window": m.get("context_length") or 0,
+                    "input_price_per_1k": _per_1k(pricing.get("prompt")),
+                    "output_price_per_1k": _per_1k(pricing.get("completion")),
+                }
+            )
+        return [m for m in models if m["model_id"]]
 
     def estimate_cost(
         self,
@@ -88,3 +115,11 @@ class LiaraProvider(ModelProvider):
             (estimated_input_tokens / 1000) * input_price_per_1k
             + (estimated_output_tokens / 1000) * output_price_per_1k
         )
+
+
+def _per_1k(price: Any) -> float:
+    """Liara quotes prices per single token; the registry stores per 1k tokens."""
+    try:
+        return float(price) * 1000
+    except (TypeError, ValueError):
+        return 0.0

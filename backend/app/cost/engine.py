@@ -57,12 +57,17 @@ class CostEngine:
         input_price_per_1k: float,
         output_price_per_1k: float,
     ) -> ModelRequest:
-        actual_cost = provider.estimate_cost(
-            input_price_per_1k=input_price_per_1k,
-            output_price_per_1k=output_price_per_1k,
-            estimated_input_tokens=chat_result.usage.input_tokens,
-            estimated_output_tokens=chat_result.usage.output_tokens,
-        )
+        # Prefer what the provider actually billed; fall back to the price table only when the
+        # provider reports no cost of its own.
+        if chat_result.provider_cost is not None:
+            actual_cost = chat_result.provider_cost
+        else:
+            actual_cost = provider.estimate_cost(
+                input_price_per_1k=input_price_per_1k,
+                output_price_per_1k=output_price_per_1k,
+                estimated_input_tokens=chat_result.usage.input_tokens,
+                estimated_output_tokens=chat_result.usage.output_tokens,
+            )
         record = ModelRequest(
             agent_run_id=agent_run_id,
             provider_name=provider.name,

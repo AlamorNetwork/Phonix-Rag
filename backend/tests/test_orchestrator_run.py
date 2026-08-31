@@ -16,6 +16,7 @@ from app.models.agent import Agent
 from app.models.agent_run import AgentRun
 from app.models.approval import Approval
 from app.models.model import Model
+from app.models.model_request import ModelRequest
 from app.models.project import Project
 from app.models.provider import Provider
 from app.orchestrator.runner import AgentRunner
@@ -264,3 +265,71 @@ async def test_run_blocked_when_over_budget(db_session_maker, tmp_path: Path):
         finished = await db.get(AgentRun, run.id)
         assert finished.status == "blocked"
     assert provider.calls == 0
+
+
+async def test_agent_can_switch_model_mid_run(db_session_maker, tmp_path: Path):
+    """model.switch must affect the very next model request, not just the next run."""
+    _, agent, run = await _make_project_agent_run(db_session_maker)
+
+    async with db_session_maker() as db:
+        db_agent = await db.get(Agent, agent.id)
+        db_agent.allowed_tools = ["model.switch"]
+        db_agent.allowed_models = []  # any enabled model
+        await db.commit()
+        provider_row = (await db.execute(select(Provider))).scalars().first()
+        db.add(
+            Model(
+                provider_id=provider_row.id,
+                model_id="other-model",
+                input_price_per_1k=0.0,
+                output_price_per_1k=0.0,
+                context_window=8192,
+                enabled=True,
+            )
+        )
+        await db.commit()
+
+    provider = ScriptedProvider(
+        [
+            ChatResult(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="model.switch", arguments={"model_id": "other-model"})],
+                usage=Usage(10, 5),
+            ),
+            ChatResult(content="Switched.", usage=Usage(5, 5)),
+        ]
+    )
+    runner = _runner(db_session_maker, provider, tmp_path)
+    run_task = asyncio.create_task(runner.run(run.id))
+
+    approval = await _await_approval(db_session_maker, run.id)
+    assert approval is not None, "model.switch should require human approval"
+    assert approval.risk_level == "MEDIUM"
+    await _decide(db_session_maker, approval.id, "approved")
+
+    await asyncio.wait_for(run_task, timeout=5)
+
+    async with db_session_maker() as db:
+        assert (await db.get(Agent, agent.id)).selected_model_id == "other-model"
+        requests = (await db.execute(select(ModelRequest).where(ModelRequest.agent_run_id == run.id))).scalars().all()
+    # First request on the original model, second on the switched-to model.
+    assert [r.model_id for r in requests] == ["fake-model", "other-model"]
+
+
+async def _await_approval(db_session_maker, run_id: str):
+    for _ in range(100):
+        await asyncio.sleep(0.02)
+        async with db_session_maker() as db:
+            result = await db.execute(select(Approval).where(Approval.agent_run_id == run_id))
+            approval = result.scalar_one_or_none()
+        if approval is not None:
+            return approval
+    return None
+
+
+async def _decide(db_session_maker, approval_id: str, decision: str) -> None:
+    async with db_session_maker() as db:
+        approval = await db.get(Approval, approval_id)
+        ApprovalEngine.mark_decided(approval, decision=decision, decided_by="test@example.com")
+        await db.commit()
+    approval_engine.resolve(approval_id, decision)

@@ -8,9 +8,10 @@ from app.database.types import new_uuid, utcnow
 from app.events.bus import EventBus, event_bus
 from app.models.tool_execution import ToolExecution
 from app.policies.risk import PolicyEngine, policy_engine
-from app.tools.base import Tool
+from app.tools.base import Tool, ToolContext
 from app.tools.filesystem_tools import FilesystemReadTool, FilesystemWriteTool
 from app.tools.git_tools import GitCommitTool, GitStatusTool
+from app.tools.model_tools import ModelListTool, ModelSwitchTool
 from app.tools.sandbox import SandboxExecutor, SandboxViolation
 
 TOOL_REGISTRY: dict[str, Tool] = {
@@ -20,6 +21,8 @@ TOOL_REGISTRY: dict[str, Tool] = {
         FilesystemWriteTool(),
         GitStatusTool(),
         GitCommitTool(),
+        ModelListTool(),
+        ModelSwitchTool(),
     )
 }
 
@@ -45,6 +48,7 @@ class ToolGateway:
         tool_name: str,
         params: dict[str, Any],
         requested_by: str = "agent",
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         tool = TOOL_REGISTRY.get(tool_name)
         if tool is None:
@@ -106,9 +110,15 @@ class ToolGateway:
                     await db.commit()
                 return {"error": f"tool call '{tool_name}' was denied by human approver"}
 
-        sandbox = SandboxExecutor(workspace_root)
+        ctx = ToolContext(
+            sandbox=SandboxExecutor(workspace_root),
+            session_maker=session_maker,
+            project_id=project_id,
+            agent_run_id=agent_run_id,
+            agent_id=agent_id,
+        )
         try:
-            result = await tool.execute(sandbox, params)
+            result = await tool.execute(ctx, params)
         except SandboxViolation as exc:
             result = {"error": str(exc)}
         except Exception as exc:  # noqa: BLE001 - a tool failure must not crash the run
@@ -141,6 +151,10 @@ def tool_definitions_for(allowed_tools: list[str]) -> list[dict[str, Any]]:
         },
         "git.status": {},
         "git.commit": {"message": {"type": "string", "description": "commit message"}},
+        "model.list": {},
+        "model.switch": {
+            "model_id": {"type": "string", "description": "model id from model.list, e.g. qwen/qwen3.8-max"}
+        },
     }
     defs = []
     for name in allowed_tools:

@@ -23,6 +23,9 @@ class ChatResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
     latency_ms: int = 0
+    # The provider's own billed cost for this request, when it reports one. Preferred over
+    # our price-table estimate (spec section 27: use real usage from the provider if available).
+    provider_cost: float | None = None
     raw: dict[str, Any] | None = None
 
 
