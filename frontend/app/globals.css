@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #08090b;
+  color: #d8dde3;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0d0f12;
+}
+::-webkit-scrollbar-thumb {
+  background: #262b32;
+  border-radius: 6px;
+}
+
+.risk-READ { color: #5b7a92; }
+.risk-LOW { color: #4c9a6a; }
+.risk-MEDIUM { color: #c9982f; }
+.risk-HIGH { color: #c04747; }
+.risk-CRITICAL { color: #ff5c5c; font-weight: 700; }

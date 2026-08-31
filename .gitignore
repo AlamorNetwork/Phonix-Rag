@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Env / secrets
+.env
+.env.local
+*.env.local
+
+# Workspaces (per-project sandboxed working dirs, contain generated project files)
+workspaces/*
+!workspaces/.gitkeep
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Alembic
+backend/app.db
