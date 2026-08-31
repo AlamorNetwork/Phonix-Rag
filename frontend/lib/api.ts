@@ -125,3 +125,23 @@ export type ForgeEvent = {
   agent_run_id: string | null;
   created_at: string;
 };
+
+export type CostBucket = {
+  key: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  cost_usd: number;
+};
+
+export type CostSummary = {
+  total_cost_usd: number;
+  total_requests: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cached_tokens: number;
+  by_model: CostBucket[];
+  by_role: CostBucket[];
+  by_project: CostBucket[];
+};

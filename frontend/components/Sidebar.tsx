@@ -27,7 +27,7 @@ const SECTIONS: NavSection[] = [
   },
   {
     title: "OBSERVABILITY",
-    items: [{ label: "Logs" }, { label: "Metrics" }, { label: "Events" }, { label: "Alerts" }],
+    items: [{ label: "Logs" }, { label: "Metrics" }, { label: "Events", href: "/events" }, { label: "Alerts" }],
   },
   {
     title: "GOVERNANCE",
@@ -35,7 +35,7 @@ const SECTIONS: NavSection[] = [
   },
   {
     title: "ECONOMICS",
-    items: [{ label: "Costs" }, { label: "Tokens" }, { label: "Budgets" }, { label: "Model Efficiency" }],
+    items: [{ label: "Costs", href: "/costs" }, { label: "Tokens" }, { label: "Budgets" }, { label: "Model Efficiency" }],
   },
 ];
 

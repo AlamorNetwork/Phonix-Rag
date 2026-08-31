@@ -10,6 +10,7 @@ from app.api import (
     routes_auth,
     routes_health,
     routes_models,
+    routes_observability,
     routes_plan,
     routes_projects,
     ws,
@@ -57,4 +58,5 @@ app.include_router(routes_agents.router, prefix="/api")
 app.include_router(routes_plan.router, prefix="/api")
 app.include_router(routes_approvals.router, prefix="/api")
 app.include_router(routes_models.router, prefix="/api")
+app.include_router(routes_observability.router, prefix="/api")
 app.include_router(ws.router)
