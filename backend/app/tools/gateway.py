@@ -128,7 +128,10 @@ class ToolGateway:
 
         async with session_maker() as db:
             execution = await db.get(ToolExecution, execution_id)
-            execution.status = "executed" if "error" not in result else "failed"
+            # Test the value, not the key: tools that report an error channel explicitly
+            # (the git tools return "error": None on success) would otherwise be recorded as
+            # failures, corrupting the audit trail and misleading any agent reading it.
+            execution.status = "failed" if result.get("error") else "executed"
             execution.result = result
             execution.executed_at = utcnow()
             await db.commit()
