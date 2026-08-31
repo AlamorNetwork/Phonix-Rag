@@ -17,8 +17,9 @@ class Settings(BaseSettings):
     admin_password: str = "change-me"
 
     liara_api_key: str = ""
+    # Must include the AI service id: https://ai.liara.ir/api/v1/<AI_SERVICE_ID>
     liara_base_url: str = "https://ai.liara.ir/api/v1"
-    liara_default_model: str = "openai/gpt-4o-mini"
+    liara_default_model: str = "openai/gpt-4.1-mini"
 
     workspaces_dir: str = "./workspaces"
 
