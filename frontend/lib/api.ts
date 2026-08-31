@@ -39,6 +39,13 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     } catch {
       /* no json body */
     }
+    // An expired or rejected token is dead for every request, not just this one. Handling it
+    // here sends you to sign in again; leaving each caller to notice meant a page could sit
+    // on a spinner forever, silently retrying a call that would never succeed.
+    if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/login")) {
+      clearToken();
+      window.location.assign("/login");
+    }
     throw new ApiError(res.status, detail);
   }
   if (res.status === 204) return undefined as T;

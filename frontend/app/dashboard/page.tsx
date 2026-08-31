@@ -85,12 +85,16 @@ const ROLE_ORDER = ["manager", "architect", "coder", "reviewer"];
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       setData(await api<Dashboard>("/dashboard"));
-    } catch {
-      /* keep the last good snapshot rather than blanking the console */
+      setError(null);
+    } catch (err) {
+      // Keep the last good snapshot rather than blanking the console, but say so - a silent
+      // catch on the very first load left the page spinning with no explanation.
+      setError(err instanceof Error ? err.message : "Could not reach the server");
     }
   }, []);
 
@@ -121,7 +125,17 @@ export default function DashboardPage() {
   if (!data) {
     return (
       <AppShell title="Command Center">
-        <div className="text-neutral-600 text-sm">Loading…</div>
+        {error ? (
+          <div className="max-w-md bg-base-near border border-status-critical/40 rounded-xl p-5">
+            <p className="text-sm text-neutral-200 mb-1">Could not load the console</p>
+            <p className="text-2xs text-neutral-500">{error}. Retrying automatically.</p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-neutral-600 text-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-emeraldBright live-dot" />
+            Loading
+          </div>
+        )}
       </AppShell>
     );
   }
