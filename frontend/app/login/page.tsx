@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { api, setToken } from "@/lib/api";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +19,11 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       setToken(res.access_token);
-      router.replace("/dashboard");
+      // A hard navigation, not router.replace: the client-side replace was landing the token
+      // in storage and then not navigating at all, leaving you staring at the login form after
+      // a successful sign-in. A full load is the right thing on an auth transition anyway -
+      // it starts the app with clean state rather than whatever the login page left behind.
+      window.location.assign("/dashboard");
     } catch {
       setError("Invalid email or password");
     } finally {

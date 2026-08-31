@@ -2,29 +2,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Committed dark world: this is an operations console, not a document. Every colour is
+   painted explicitly so nothing borrows a host theme. */
 :root {
   color-scheme: dark;
+
+  --ground: #07080a;
+  --surface: #0c0e11;
+  --raised: #12151a;
+  --line: #1f242b;
+  --line-strong: #2b323b;
+
+  --ink: #dfe4ea;
+  --ink-2: #929ca8;
+  --ink-3: #5e6873;
+
+  --emerald: #18b47f;
+  --emerald-deep: #0d5c44;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--ground);
+  color: var(--ink);
 }
 
 body {
-  background-color: #08090b;
-  color: #d8dde3;
+  font-feature-settings: "cv05" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d0f12;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #262b32;
+  background: var(--line-strong);
   border-radius: 6px;
 }
+::-webkit-scrollbar-thumb:hover {
+  background: #3a424d;
+}
 
-.risk-READ { color: #5b7a92; }
-.risk-LOW { color: #4c9a6a; }
-.risk-MEDIUM { color: #c9982f; }
-.risk-HIGH { color: #c04747; }
-.risk-CRITICAL { color: #ff5c5c; font-weight: 700; }
+/* Keyboard users get a visible focus ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--emerald);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@layer utilities {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A faint grid, the way an ops console reads - not a decorative gradient. */
+  .grid-field {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  .risk-READ { color: #6f8ea6; }
+  .risk-LOW { color: #4fa87a; }
+  .risk-MEDIUM { color: #d0a03a; }
+  .risk-HIGH { color: #d05a5a; }
+  .risk-CRITICAL { color: #ff6b6b; font-weight: 700; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.live-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}

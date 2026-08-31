@@ -8,6 +8,7 @@ from app.api import (
     routes_agents,
     routes_approvals,
     routes_auth,
+    routes_dashboard,
     routes_health,
     routes_models,
     routes_observability,
@@ -52,6 +53,7 @@ app.add_middleware(
 )
 
 app.include_router(routes_health.router, prefix="/api")
+app.include_router(routes_dashboard.router, prefix="/api")
 app.include_router(routes_auth.router, prefix="/api")
 app.include_router(routes_projects.router, prefix="/api")
 app.include_router(routes_agents.router, prefix="/api")
