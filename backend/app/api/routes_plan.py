@@ -1,16 +1,25 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import Settings, get_settings
+from app.cost.engine import cost_engine
 from app.database.session import async_session_maker, get_db
 from app.events.bus import event_bus
 from app.models.project import Project, ProjectStatus
 from app.models.project_task import ProjectTask, TaskStatus
 from app.models.user import User
+from app.orchestrator.project_runner import ProjectRunner
+from app.providers.liara import LiaraProvider
 from app.schemas.task import PlanResponse, TaskResponse
+from app.tools.gateway import tool_gateway
 
 router = APIRouter(prefix="/projects", tags=["plan"])
+
+_background_tasks: set[asyncio.Task] = set()
 
 
 async def _load_plan(db: AsyncSession, project_id: str) -> PlanResponse:
@@ -41,6 +50,7 @@ async def get_plan(
 async def approve_plan(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
 ) -> PlanResponse:
     """The gate the whole plan step exists for: until a human calls this, the tasks the Manager
@@ -67,6 +77,19 @@ async def approve_plan(
         event_type="plan.approved",
         payload={"approved_by": current_user.email},
     )
+
+    # Approving is what starts the work. It runs in the background because executing a plan
+    # takes minutes and suspends on every approval gate along the way.
+    provider = LiaraProvider(
+        api_key=settings.liara_api_key,
+        base_url=settings.liara_base_url,
+        timeout=settings.provider_timeout_seconds,
+    )
+    runner = ProjectRunner(async_session_maker, provider, tool_gateway, event_bus, cost_engine, settings)
+    task = asyncio.create_task(runner.run(project_id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
     return await _load_plan(db, project_id)
 
 

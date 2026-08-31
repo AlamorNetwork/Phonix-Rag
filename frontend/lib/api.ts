@@ -96,6 +96,28 @@ export type AgentInfo = {
   max_iterations: number;
 };
 
+export type Task = {
+  id: string;
+  project_id: string;
+  order_index: number;
+  title: string;
+  description: string;
+  assigned_role: string;
+  status: string;
+  attempts: number;
+  estimated_cost_usd: number | null;
+  agent_run_id: string | null;
+  review_notes: string | null;
+  created_at: string;
+};
+
+export type Plan = {
+  project_id: string;
+  project_status: string;
+  tasks: Task[];
+  estimated_total_usd: number | null;
+};
+
 export type ForgeEvent = {
   id: string;
   type: string;

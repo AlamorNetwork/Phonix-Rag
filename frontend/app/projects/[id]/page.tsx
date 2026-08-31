@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ModelPicker } from "@/components/ModelPicker";
+import { PlanPanel } from "@/components/PlanPanel";
 import { api, Approval, AgentRun, ForgeEvent, getToken, Project, WS_BASE } from "@/lib/api";
 
 export default function ProjectDetailPage() {
@@ -19,6 +20,8 @@ export default function ProjectDetailPage() {
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">("connecting");
   // Bumped when the agent may have changed its own model, so the picker re-reads it.
   const [modelRefreshKey, setModelRefreshKey] = useState(0);
+  // Bumped when the plan may have changed: submitted, approved, or a task moved on.
+  const [planRefreshKey, setPlanRefreshKey] = useState(0);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
   function refreshRuns() {
@@ -47,6 +50,13 @@ export default function ProjectDetailPage() {
       if (data.type === "agent.completed" || data.type === "agent.started") refreshRuns();
       if (data.type === "tool.completed" && data.payload?.tool === "model.switch") {
         setModelRefreshKey((k) => k + 1);
+      }
+      if (
+        data.type.startsWith("plan.") ||
+        data.type.startsWith("task.") ||
+        (data.type === "tool.completed" && data.payload?.tool === "plan.submit")
+      ) {
+        setPlanRefreshKey((k) => k + 1);
       }
     };
     return () => ws.close();
@@ -165,6 +175,8 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
+          <PlanPanel projectId={projectId} refreshKey={planRefreshKey} />
+
           <ModelPicker projectId={projectId} refreshKey={modelRefreshKey} />
 
           <section className="bg-base-near border border-base-border rounded-lg p-4">
