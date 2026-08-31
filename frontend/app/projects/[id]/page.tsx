@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { ModelPicker } from "@/components/ModelPicker";
 import { api, Approval, AgentRun, ForgeEvent, getToken, Project, WS_BASE } from "@/lib/api";
 
 export default function ProjectDetailPage() {
@@ -16,6 +17,8 @@ export default function ProjectDetailPage() {
   const [message, setMessage] = useState("");
   const [running, setRunning] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">("connecting");
+  // Bumped when the agent may have changed its own model, so the picker re-reads it.
+  const [modelRefreshKey, setModelRefreshKey] = useState(0);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
   function refreshRuns() {
@@ -42,6 +45,9 @@ export default function ProjectDetailPage() {
       setEvents((prev) => [...prev.slice(-200), data]);
       if (data.type === "approval.required" || data.type.startsWith("approval.")) refreshApprovals();
       if (data.type === "agent.completed" || data.type === "agent.started") refreshRuns();
+      if (data.type === "tool.completed" && data.payload?.tool === "model.switch") {
+        setModelRefreshKey((k) => k + 1);
+      }
     };
     return () => ws.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -159,6 +165,8 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
+          <ModelPicker projectId={projectId} refreshKey={modelRefreshKey} />
+
           <section className="bg-base-near border border-base-border rounded-lg p-4">
             <div className="text-sm font-medium text-neutral-300 mb-1">Session Cost</div>
             <div className="text-2xl font-semibold text-neutral-200">${sessionCost.toFixed(4)}</div>

@@ -75,6 +75,27 @@ export type Approval = {
   created_at: string;
 };
 
+export type ModelInfo = {
+  id: string;
+  provider_id: string;
+  model_id: string;
+  input_price_per_1k: number;
+  output_price_per_1k: number;
+  context_window: number;
+  enabled: boolean;
+};
+
+export type AgentInfo = {
+  id: string;
+  project_id: string;
+  role: string;
+  allowed_tools: string[];
+  allowed_models: string[];
+  selected_model_id: string | null;
+  budget_usd: number;
+  max_iterations: number;
+};
+
 export type ForgeEvent = {
   id: string;
   type: string;
