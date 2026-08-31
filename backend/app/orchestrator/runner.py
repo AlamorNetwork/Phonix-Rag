@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -15,6 +16,9 @@ from app.models.model import Model
 from app.models.project import Project
 from app.providers.base import ModelProvider
 from app.tools.gateway import ToolGateway, tool_definitions_for
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRunner:
@@ -74,6 +78,7 @@ class AgentRunner:
                     payload={"detail": str(exc)},
                 )
             except Exception as exc:  # noqa: BLE001 - a bug in one run must not crash the orchestrator
+                logger.exception("agent run %s failed", run.id)
                 run.status = "failed"
                 run.output_message = f"Run failed: {exc}"
 
