@@ -4,7 +4,8 @@ from typing import Any
 
 import httpx
 
-from app.providers.base import ChatResult, ModelProvider, ToolCall, Usage
+from app.core.logging import mask_secrets
+from app.providers.base import ChatResult, ModelProvider, ProviderError, ToolCall, Usage
 
 
 class LiaraProvider(ModelProvider):
@@ -49,7 +50,13 @@ class LiaraProvider(ModelProvider):
                 json=body,
             )
         latency_ms = int((time.monotonic() - started) * 1000)
-        response.raise_for_status()
+        if response.is_error:
+            # raise_for_status() alone gives "400 Bad Request" and nothing else, which says
+            # nothing about *why* the gateway refused - include the body it sent back.
+            raise ProviderError(
+                f"{self.name} returned {response.status_code} for model '{model}': "
+                f"{mask_secrets(response.text[:600])}"
+            )
         data = response.json()
 
         choice = data["choices"][0]["message"]
@@ -80,13 +87,17 @@ class LiaraProvider(ModelProvider):
 
     async def list_models(self) -> list[dict[str, Any]]:
         """Fetch the gateway's model catalogue. Prices come back per single token; they are
-        converted to per-1k here so the registry stores one consistent unit."""
+        converted to per-1M here so the registry stores one consistent unit."""
         async with httpx.AsyncClient(timeout=self.timeout, transport=self._transport) as client:
             response = await client.get(
                 f"{self.base_url}/models",
                 headers={"Authorization": f"Bearer {self.api_key}"},
             )
-        response.raise_for_status()
+        if response.is_error:
+            raise ProviderError(
+                f"{self.name} returned {response.status_code} listing models: "
+                f"{mask_secrets(response.text[:600])}"
+            )
         data = response.json()
         raw_models = data.get("data") or data.get("models") or []
 

@@ -16,7 +16,7 @@ from app.models.agent_run import AgentRun
 from app.models.model import Model
 from app.models.project import Project
 from app.providers.base import ModelProvider
-from app.tools.gateway import ToolGateway, tool_definitions_for
+from app.tools.gateway import ToolGateway, resolve_tool_name, tool_definitions_for
 
 
 logger = logging.getLogger(__name__)
@@ -243,7 +243,8 @@ class AgentRunner:
                         agent_run_id=run_id,
                         project_id=project_id,
                         workspace_root=workspace_root,
-                        tool_name=tool_call.name,
+                        # The model sees underscored names; translate back to the internal one.
+                        tool_name=resolve_tool_name(tool_call.name),
                         params=tool_call.arguments,
                         requested_by=config.role,
                         agent_id=config.agent_id,

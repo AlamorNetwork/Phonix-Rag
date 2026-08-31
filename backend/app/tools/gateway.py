@@ -32,6 +32,27 @@ TOOL_REGISTRY: dict[str, Tool] = {
 }
 
 
+# Tool names are dotted internally (filesystem.read) because that is how the spec names them
+# and how they read in policy and audit records. Models cannot be sent those names: Anthropic
+# constrains function names to ^[a-zA-Z0-9_-]{1,64}$, and a dotted name fails the whole request
+# at the gateway. So dots become underscores on the wire and are translated back on the way in.
+def to_wire_name(tool_name: str) -> str:
+    return tool_name.replace(".", "_")
+
+
+_WIRE_TO_INTERNAL: dict[str, str] = {to_wire_name(name): name for name in TOOL_REGISTRY}
+assert len(_WIRE_TO_INTERNAL) == len(TOOL_REGISTRY), (
+    "two tools collide once dots become underscores; rename one of them"
+)
+
+
+def resolve_tool_name(name: str) -> str:
+    """Map a name the model used back to the internal tool name."""
+    if name in TOOL_REGISTRY:
+        return name
+    return _WIRE_TO_INTERNAL.get(name, name)
+
+
 class ToolGateway:
     """The only path from an agent to the filesystem/git. Every call goes through:
     Policy Engine (is approval needed?) -> Approval Engine (ask a human if so) ->
@@ -194,7 +215,7 @@ def tool_definitions_for(allowed_tools: list[str]) -> list[dict[str, Any]]:
             {
                 "type": "function",
                 "function": {
-                    "name": name,
+                    "name": to_wire_name(name),
                     "description": tool.description,
                     "parameters": {
                         "type": "object",

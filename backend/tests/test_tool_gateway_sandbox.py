@@ -58,3 +58,26 @@ async def test_filesystem_write_cannot_escape_workspace(tmp_path: Path):
 async def test_filesystem_read_missing_file_returns_error_not_exception(tmp_path: Path):
     result = await FilesystemReadTool().execute(_ctx(tmp_path), {"path": "missing.txt"})
     assert "error" in result
+
+
+def test_dotted_tool_names_are_underscored_for_the_model():
+    """Anthropic constrains function names to ^[a-zA-Z0-9_-]{1,64}$ - sending a dotted name
+    fails the entire request at the gateway, which is what blocked every Opus-backed role."""
+    from app.tools.gateway import resolve_tool_name, to_wire_name, tool_definitions_for
+
+    defs = tool_definitions_for(["filesystem.read", "plan.submit"])
+    names = [d["function"]["name"] for d in defs]
+
+    assert names == ["filesystem_read", "plan_submit"]
+    assert all("." not in n for n in names)
+
+
+def test_wire_names_map_back_to_the_internal_tool():
+    from app.tools.gateway import resolve_tool_name
+
+    assert resolve_tool_name("filesystem_read") == "filesystem.read"
+    assert resolve_tool_name("plan_submit") == "plan.submit"
+    # A model that sends the internal name anyway still resolves.
+    assert resolve_tool_name("filesystem.read") == "filesystem.read"
+    # An unknown name passes through so the gateway reports it as unknown, not as something else.
+    assert resolve_tool_name("nonsense") == "nonsense"

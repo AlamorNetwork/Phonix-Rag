@@ -3,6 +3,7 @@ import json
 import httpx
 import pytest
 
+from app.providers.base import ProviderError
 from app.providers.liara import LiaraProvider
 
 
@@ -78,7 +79,7 @@ async def test_chat_raises_on_http_error():
         api_key="bad-key", base_url="https://ai.liara.ir/api/v1", transport=httpx.MockTransport(handler)
     )
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(ProviderError, match="invalid api key"):
         await provider.chat(model="openai/gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
 
 

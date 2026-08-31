@@ -55,3 +55,8 @@ class ModelProvider(ABC):
         estimated_input_tokens: int,
         estimated_output_tokens: int,
     ) -> float: ...
+
+
+class ProviderError(RuntimeError):
+    """A provider refused or failed a request. Carries the provider's own explanation, so a
+    failure is diagnosable from the run record without reproducing it by hand."""
