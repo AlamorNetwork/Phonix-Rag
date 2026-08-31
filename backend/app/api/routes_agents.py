@@ -65,7 +65,11 @@ async def run_agent(
     await db.commit()
     await db.refresh(run)
 
-    provider = LiaraProvider(api_key=settings.liara_api_key, base_url=settings.liara_base_url)
+    provider = LiaraProvider(
+        api_key=settings.liara_api_key,
+        base_url=settings.liara_base_url,
+        timeout=settings.provider_timeout_seconds,
+    )
     runner = AgentRunner(async_session_maker, provider, tool_gateway, event_bus, cost_engine, settings)
     task = asyncio.create_task(runner.run(run.id))
     _background_tasks.add(task)

@@ -22,6 +22,13 @@ from app.tools.gateway import ToolGateway, resolve_tool_name, tool_definitions_f
 logger = logging.getLogger(__name__)
 
 
+def _describe(exc: Exception) -> str:
+    """Some exceptions carry no message at all - httpx.ReadTimeout being the one that bit us,
+    leaving a run record that said only "Run failed: ". Always name the type."""
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
 @dataclass
 class _RunConfig:
     """Agent/model settings copied out of the DB up front, so the run loop never has to keep
@@ -123,7 +130,7 @@ class AgentRunner:
         except Exception as exc:  # noqa: BLE001 - a bug in one run must not crash the orchestrator
             logger.exception("agent run %s failed", run_id)
             status = "failed"
-            output_message = f"Run failed: {exc}"
+            output_message = f"Run failed: {_describe(exc)}"
 
         async with self.session_maker() as db:
             run = await db.get(AgentRun, run_id)

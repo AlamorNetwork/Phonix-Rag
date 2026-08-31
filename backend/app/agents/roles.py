@@ -34,6 +34,7 @@ MANAGER = AgentRole(
     default_model="anthropic/claude-opus-4.6",
     budget_usd=2.00,
     max_iterations=10,
+    timeout_seconds=1800,
     allowed_tools=[
         "filesystem.read",
         "git.status",
@@ -72,6 +73,7 @@ ARCHITECT = AgentRole(
     default_model="anthropic/claude-opus-4.6",
     budget_usd=2.00,
     max_iterations=12,
+    timeout_seconds=1800,
     allowed_tools=[
         "filesystem.read",
         "filesystem.write",
@@ -129,6 +131,7 @@ REVIEWER = AgentRole(
     default_model="openai/gpt-5.2-codex",
     budget_usd=1.00,
     max_iterations=10,
+    timeout_seconds=1200,
     allowed_tools=[
         "filesystem.read",
         "git.status",
