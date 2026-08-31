@@ -14,6 +14,7 @@ from app.events.bus import EventBus
 from app.models.agent import Agent
 from app.models.agent_run import AgentRun
 from app.models.model import Model
+from app.models.project import Project
 from app.providers.base import ModelProvider
 from app.tools.gateway import ToolGateway, tool_definitions_for
 
@@ -30,6 +31,8 @@ class _RunConfig:
     role: str
     system_prompt: str
     input_message: str
+    project_name: str
+    project_idea: str
     allowed_tools: list[str]
     budget_usd: float
     max_iterations: int
@@ -67,6 +70,7 @@ class AgentRunner:
         async with self.session_maker() as db:
             run = await db.get(AgentRun, run_id)
             agent = await db.get(Agent, run.agent_id)
+            project = await db.get(Project, run.project_id)
             project_id = run.project_id
             # Resolved here only to fail fast if the selected model isn't registered; the loop
             # re-resolves it every iteration so a mid-run switch is picked up.
@@ -78,6 +82,8 @@ class AgentRunner:
                 role=agent.role,
                 system_prompt=agent.system_prompt,
                 input_message=run.input_message,
+                project_name=project.name,
+                project_idea=project.idea,
                 allowed_tools=list(agent.allowed_tools),
                 budget_usd=agent.budget_usd,
                 max_iterations=agent.max_iterations,
@@ -144,9 +150,18 @@ class AgentRunner:
         return model
 
     async def _loop(self, *, run_id: str, project_id: str, config: "_RunConfig", workspace_root) -> str:
+        # The project's idea is the whole point of the run, so it goes in the context rather
+        # than leaving the agent to guess from a bare instruction.
         messages: list[dict] = [
             {"role": "system", "content": config.system_prompt},
-            {"role": "user", "content": config.input_message},
+            {
+                "role": "user",
+                "content": (
+                    f"Project: {config.project_name}\n\n"
+                    f"Idea:\n{config.project_idea}\n\n"
+                    f"Task:\n{config.input_message}"
+                ),
+            },
         ]
         tools = tool_definitions_for(config.allowed_tools)
         final_text = None

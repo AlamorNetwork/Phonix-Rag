@@ -334,3 +334,24 @@ async def _decide(db_session_maker, approval_id: str, decision: str) -> None:
         ApprovalEngine.mark_decided(approval, decision=decision, decided_by="test@example.com")
         await db.commit()
     approval_engine.resolve(approval_id, decision)
+
+
+async def test_project_idea_is_given_to_the_agent(db_session_maker, tmp_path: Path):
+    """The Manager's job is to turn the project's idea into requirements, so the idea itself
+    must reach the model - not just the run's instruction."""
+    project, _, run = await _make_project_agent_run(db_session_maker)
+
+    captured: list[list[dict]] = []
+
+    class CapturingProvider(ScriptedProvider):
+        async def chat(self, *, model, messages, tools=None):
+            captured.append(messages)
+            return await super().chat(model=model, messages=messages, tools=tools)
+
+    provider = CapturingProvider([ChatResult(content="done", usage=Usage(5, 5))])
+    await _runner(db_session_maker, provider, tmp_path).run(run.id)
+
+    prompt = "\n".join(m["content"] for m in captured[0] if isinstance(m.get("content"), str))
+    assert project.idea in prompt
+    assert project.name in prompt
+    assert run.input_message in prompt
