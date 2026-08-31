@@ -98,7 +98,10 @@ async def _make_project_agent_run(db_session_maker, *, budget_usd: float = 10.0,
             selected_model_id="fake-model",
             budget_usd=budget_usd,
             max_iterations=max_iterations,
-            timeout_seconds=10,
+            # Generous on purpose: no test here is asserting timeout behaviour, and a tight
+            # limit turns ordinary CPU contention (a parallel build, a loaded CI box) into a
+            # false failure.
+            timeout_seconds=120,
         )
         db.add(agent)
         await db.commit()
