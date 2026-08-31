@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -13,12 +14,27 @@ from app.events.bus import EventBus
 from app.models.agent import Agent
 from app.models.agent_run import AgentRun
 from app.models.model import Model
-from app.models.project import Project
 from app.providers.base import ModelProvider
 from app.tools.gateway import ToolGateway, tool_definitions_for
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _RunConfig:
+    """Agent/model settings copied out of the DB up front, so the run loop never has to keep
+    ORM objects (and therefore a session) alive across model calls and approval waits."""
+
+    role: str
+    system_prompt: str
+    input_message: str
+    allowed_tools: list[str]
+    budget_usd: float
+    max_iterations: int
+    model_id: str
+    input_price_per_1k: float
+    output_price_per_1k: float
 
 
 class AgentRunner:
@@ -46,48 +62,76 @@ class AgentRunner:
         self.settings = settings
 
     async def run(self, run_id: str) -> None:
+        # Every DB touch below opens its own short-lived session. A run can suspend for an
+        # unbounded time waiting on a human approval, so holding one session (and its
+        # connection) open for the whole run would pin a pool connection indefinitely and
+        # leave a transaction idle-in-progress the entire time.
         async with self.session_maker() as db:
             run = await db.get(AgentRun, run_id)
             agent = await db.get(Agent, run.agent_id)
-            project = await db.get(Project, run.project_id)
+            project_id = run.project_id
             model = await self._resolve_model(db, agent)
-            workspace_root = workspace_path_for(project.id, self.settings)
-            workspace_root.mkdir(parents=True, exist_ok=True)
+            agent_role = agent.role
+            agent_timeout = agent.timeout_seconds
+            run_config = _RunConfig(
+                role=agent.role,
+                system_prompt=agent.system_prompt,
+                input_message=run.input_message,
+                allowed_tools=list(agent.allowed_tools),
+                budget_usd=agent.budget_usd,
+                max_iterations=agent.max_iterations,
+                model_id=model.model_id,
+                input_price_per_1k=model.input_price_per_1k,
+                output_price_per_1k=model.output_price_per_1k,
+            )
 
             run.status = "running"
             run.started_at = utcnow()
             await db.commit()
-            await self.event_bus.publish(
-                db, project_id=project.id, agent_run_id=run.id, event_type="agent.started",
-                payload={"agent_role": agent.role},
+
+        workspace_root = workspace_path_for(project_id, self.settings)
+        workspace_root.mkdir(parents=True, exist_ok=True)
+
+        await self.event_bus.publish(
+            self.session_maker, project_id=project_id, agent_run_id=run_id,
+            event_type="agent.started", payload={"agent_role": agent_role},
+        )
+
+        status = "completed"
+        output_message = None
+        try:
+            output_message = await asyncio.wait_for(
+                self._loop(
+                    run_id=run_id, project_id=project_id, config=run_config, workspace_root=workspace_root
+                ),
+                timeout=agent_timeout,
             )
+        except TimeoutError:
+            status = "timeout"
+            output_message = "Agent run exceeded its timeout."
+        except BudgetExceeded as exc:
+            status = "blocked"
+            output_message = str(exc)
+            await self.event_bus.publish(
+                self.session_maker, project_id=project_id, agent_run_id=run_id,
+                event_type="budget.exceeded", payload={"detail": str(exc)},
+            )
+        except Exception as exc:  # noqa: BLE001 - a bug in one run must not crash the orchestrator
+            logger.exception("agent run %s failed", run_id)
+            status = "failed"
+            output_message = f"Run failed: {exc}"
 
-            try:
-                await asyncio.wait_for(
-                    self._loop(db, run=run, agent=agent, project_id=project.id, model=model, workspace_root=workspace_root),
-                    timeout=agent.timeout_seconds,
-                )
-            except TimeoutError:
-                run.status = "timeout"
-                run.output_message = "Agent run exceeded its timeout."
-            except BudgetExceeded as exc:
-                run.status = "blocked"
-                run.output_message = str(exc)
-                await self.event_bus.publish(
-                    db, project_id=project.id, agent_run_id=run.id, event_type="budget.exceeded",
-                    payload={"detail": str(exc)},
-                )
-            except Exception as exc:  # noqa: BLE001 - a bug in one run must not crash the orchestrator
-                logger.exception("agent run %s failed", run.id)
-                run.status = "failed"
-                run.output_message = f"Run failed: {exc}"
-
+        async with self.session_maker() as db:
+            run = await db.get(AgentRun, run_id)
+            run.status = status
+            run.output_message = output_message
             run.finished_at = utcnow()
             await db.commit()
-            await self.event_bus.publish(
-                db, project_id=project.id, agent_run_id=run.id, event_type="agent.completed",
-                payload={"status": run.status},
-            )
+
+        await self.event_bus.publish(
+            self.session_maker, project_id=project_id, agent_run_id=run_id,
+            event_type="agent.completed", payload={"status": status},
+        )
 
     async def _resolve_model(self, db, agent: Agent) -> Model:
         model_id = agent.allowed_models[0] if agent.allowed_models else self.settings.liara_default_model
@@ -97,44 +141,48 @@ class AgentRunner:
             raise RuntimeError(f"model '{model_id}' is not registered in the Model Registry")
         return model
 
-    async def _loop(self, db, *, run: AgentRun, agent: Agent, project_id: str, model: Model, workspace_root) -> None:
+    async def _loop(self, *, run_id: str, project_id: str, config: "_RunConfig", workspace_root) -> str:
         messages: list[dict] = [
-            {"role": "system", "content": agent.system_prompt},
-            {"role": "user", "content": run.input_message},
+            {"role": "system", "content": config.system_prompt},
+            {"role": "user", "content": config.input_message},
         ]
-        tools = tool_definitions_for(agent.allowed_tools)
+        tools = tool_definitions_for(config.allowed_tools)
         final_text = None
 
-        for _ in range(agent.max_iterations):
+        for _ in range(config.max_iterations):
             estimated_input_tokens = self.cost_engine.estimate_tokens(json.dumps(messages))
             estimated_output_tokens = 500
             estimated_cost = self.provider.estimate_cost(
-                input_price_per_1k=model.input_price_per_1k,
-                output_price_per_1k=model.output_price_per_1k,
+                input_price_per_1k=config.input_price_per_1k,
+                output_price_per_1k=config.output_price_per_1k,
                 estimated_input_tokens=estimated_input_tokens,
                 estimated_output_tokens=estimated_output_tokens,
             )
-            await self.cost_engine.check_budget(
-                db, agent_run_id=run.id, budget_usd=agent.budget_usd, estimated_cost=estimated_cost
-            )
+            async with self.session_maker() as db:
+                await self.cost_engine.check_budget(
+                    db, agent_run_id=run_id, budget_usd=config.budget_usd, estimated_cost=estimated_cost
+                )
 
             await self.event_bus.publish(
-                db, project_id=project_id, agent_run_id=run.id, event_type="model.request",
-                payload={"model": model.model_id},
+                self.session_maker, project_id=project_id, agent_run_id=run_id,
+                event_type="model.request", payload={"model": config.model_id},
             )
-            chat_result = await self.provider.chat(model=model.model_id, messages=messages, tools=tools)
-            model_request = await self.cost_engine.record(
-                db,
-                agent_run_id=run.id,
-                provider=self.provider,
-                model_id=model.model_id,
-                estimated_cost=estimated_cost,
-                chat_result=chat_result,
-                input_price_per_1k=model.input_price_per_1k,
-                output_price_per_1k=model.output_price_per_1k,
-            )
+            chat_result = await self.provider.chat(model=config.model_id, messages=messages, tools=tools)
+            async with self.session_maker() as db:
+                model_request = await self.cost_engine.record(
+                    db,
+                    agent_run_id=run_id,
+                    provider=self.provider,
+                    model_id=config.model_id,
+                    estimated_cost=estimated_cost,
+                    chat_result=chat_result,
+                    input_price_per_1k=config.input_price_per_1k,
+                    output_price_per_1k=config.output_price_per_1k,
+                )
+                actual_cost = model_request.actual_cost
             await self.event_bus.publish(
-                db, project_id=project_id, agent_run_id=run.id, event_type="model.response",
+                self.session_maker, project_id=project_id, agent_run_id=run_id,
+                event_type="model.response",
                 payload={
                     "input_tokens": chat_result.usage.input_tokens,
                     "output_tokens": chat_result.usage.output_tokens,
@@ -142,8 +190,9 @@ class AgentRunner:
                 },
             )
             await self.event_bus.publish(
-                db, project_id=project_id, agent_run_id=run.id, event_type="cost.recorded",
-                payload={"estimated_cost": estimated_cost, "actual_cost": model_request.actual_cost},
+                self.session_maker, project_id=project_id, agent_run_id=run_id,
+                event_type="cost.recorded",
+                payload={"estimated_cost": estimated_cost, "actual_cost": actual_cost},
             )
 
             if chat_result.tool_calls:
@@ -163,13 +212,13 @@ class AgentRunner:
                 )
                 for tool_call in chat_result.tool_calls:
                     result = await self.tool_gateway.dispatch(
-                        db,
-                        agent_run_id=run.id,
+                        self.session_maker,
+                        agent_run_id=run_id,
                         project_id=project_id,
                         workspace_root=workspace_root,
                         tool_name=tool_call.name,
                         params=tool_call.arguments,
-                        requested_by=agent.role,
+                        requested_by=config.role,
                     )
                     messages.append(
                         {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result)}
@@ -181,5 +230,4 @@ class AgentRunner:
         else:
             final_text = final_text or "Reached max iterations without a final answer."
 
-        run.status = "completed"
-        run.output_message = final_text
+        return final_text

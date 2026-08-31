@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.logging import mask_secrets
 from app.models.system_event import SystemEvent
@@ -40,7 +40,7 @@ class EventBus:
 
     async def publish(
         self,
-        db: AsyncSession,
+        session_maker: async_sessionmaker,
         *,
         project_id: str | None,
         event_type: str,
@@ -54,9 +54,9 @@ class EventBus:
             event_type=event_type,
             payload=safe_payload,
         )
-        db.add(event)
-        await db.commit()
-        await db.refresh(event)
+        async with session_maker() as db:
+            db.add(event)
+            await db.commit()
 
         if project_id:
             message = {

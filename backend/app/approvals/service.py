@@ -1,8 +1,8 @@
 import asyncio
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.database.types import utcnow
+from app.database.types import new_uuid, utcnow
 from app.models.approval import Approval
 from app.models.tool_execution import ToolExecution
 
@@ -22,25 +22,31 @@ class ApprovalEngine:
 
     async def request_approval(
         self,
-        db: AsyncSession,
+        session_maker: async_sessionmaker,
         *,
-        execution: ToolExecution,
+        tool_execution_id: str,
+        risk_level: str,
         agent_run_id: str,
         reason: str,
     ) -> Approval:
         approval = Approval(
-            tool_execution_id=execution.id,
+            # Assigned here rather than left to the column default (which only fires at INSERT)
+            # so the pending future can be registered before the row is committed.
+            id=new_uuid(),
+            tool_execution_id=tool_execution_id,
             agent_run_id=agent_run_id,
-            risk_level=execution.risk_level,
+            risk_level=risk_level,
             reason=reason,
             status="pending",
         )
-        db.add(approval)
-        await db.flush()
-        execution.approval_id = approval.id
-        await db.commit()
-        await db.refresh(approval)
+        # The future must exist before the row is visible to the API, otherwise a very fast
+        # human (or a test) could approve it and find nothing waiting on the decision.
         self._pending[approval.id] = asyncio.get_running_loop().create_future()
+        async with session_maker() as db:
+            db.add(approval)
+            execution = await db.get(ToolExecution, tool_execution_id)
+            execution.approval_id = approval.id
+            await db.commit()
         return approval
 
     async def wait_for_decision(self, approval_id: str) -> str:

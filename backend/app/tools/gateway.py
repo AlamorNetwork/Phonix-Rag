@@ -1,10 +1,10 @@
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.approvals.service import ApprovalEngine, approval_engine
-from app.database.types import utcnow
+from app.database.types import new_uuid, utcnow
 from app.events.bus import EventBus, event_bus
 from app.models.tool_execution import ToolExecution
 from app.policies.risk import PolicyEngine, policy_engine
@@ -37,7 +37,7 @@ class ToolGateway:
 
     async def dispatch(
         self,
-        db: AsyncSession,
+        session_maker: async_sessionmaker,
         *,
         agent_run_id: str,
         project_id: str,
@@ -50,44 +50,49 @@ class ToolGateway:
         if tool is None:
             return {"error": f"unknown tool: {tool_name}"}
 
-        execution = ToolExecution(
-            agent_run_id=agent_run_id,
-            tool_name=tool_name,
-            risk_level=tool.risk_level.name,
-            input_params=params,
-            status="pending",
-        )
-        db.add(execution)
-        await db.commit()
-        await db.refresh(execution)
+        execution_id = new_uuid()
+        async with session_maker() as db:
+            db.add(
+                ToolExecution(
+                    id=execution_id,
+                    agent_run_id=agent_run_id,
+                    tool_name=tool_name,
+                    risk_level=tool.risk_level.name,
+                    input_params=params,
+                    status="pending",
+                )
+            )
+            await db.commit()
 
         await self.event_bus.publish(
-            db,
+            session_maker,
             project_id=project_id,
             agent_run_id=agent_run_id,
             event_type="tool.called",
-            payload={"tool": tool_name, "risk": tool.risk_level.name, "execution_id": execution.id, "params": params},
+            payload={"tool": tool_name, "risk": tool.risk_level.name, "execution_id": execution_id, "params": params},
         )
 
         if self.policy_engine.requires_approval(tool.risk_level):
             approval = await self.approval_engine.request_approval(
-                db,
-                execution=execution,
+                session_maker,
+                tool_execution_id=execution_id,
+                risk_level=tool.risk_level.name,
                 agent_run_id=agent_run_id,
                 reason=f"{requested_by} wants to call {tool_name} (risk: {tool.risk_level.name})",
             )
             await self.event_bus.publish(
-                db,
+                session_maker,
                 project_id=project_id,
                 agent_run_id=agent_run_id,
                 event_type="approval.required",
                 payload={"approval_id": approval.id, "tool": tool_name, "risk": tool.risk_level.name, "reason": approval.reason},
             )
 
+            # No DB session is held across this wait - it can last as long as a human takes.
             decision = await self.approval_engine.wait_for_decision(approval.id)
 
             await self.event_bus.publish(
-                db,
+                session_maker,
                 project_id=project_id,
                 agent_run_id=agent_run_id,
                 event_type=f"approval.{decision}",
@@ -95,8 +100,10 @@ class ToolGateway:
             )
 
             if decision != "approved":
-                execution.status = "denied"
-                await db.commit()
+                async with session_maker() as db:
+                    execution = await db.get(ToolExecution, execution_id)
+                    execution.status = "denied"
+                    await db.commit()
                 return {"error": f"tool call '{tool_name}' was denied by human approver"}
 
         sandbox = SandboxExecutor(workspace_root)
@@ -107,17 +114,19 @@ class ToolGateway:
         except Exception as exc:  # noqa: BLE001 - a tool failure must not crash the run
             result = {"error": f"tool execution failed: {exc}"}
 
-        execution.status = "executed" if "error" not in result else "failed"
-        execution.result = result
-        execution.executed_at = utcnow()
-        await db.commit()
+        async with session_maker() as db:
+            execution = await db.get(ToolExecution, execution_id)
+            execution.status = "executed" if "error" not in result else "failed"
+            execution.result = result
+            execution.executed_at = utcnow()
+            await db.commit()
 
         await self.event_bus.publish(
-            db,
+            session_maker,
             project_id=project_id,
             agent_run_id=agent_run_id,
             event_type="tool.completed",
-            payload={"tool": tool_name, "execution_id": execution.id, "result": result},
+            payload={"tool": tool_name, "execution_id": execution_id, "result": result},
         )
         return result
 
