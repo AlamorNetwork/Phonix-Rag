@@ -25,6 +25,13 @@ from app.providers.base import ChatResult, ModelProvider, ToolCall, Usage
 from app.tools.gateway import ToolGateway
 
 
+# Waiting for the agent to reach its approval gate. Generous on purpose: the gate is
+# normally reached in milliseconds, so a tight window turns CPU contention into a false
+# failure instead of surfacing a real bug. Each loop exits as soon as the approval lands.
+APPROVAL_POLL_ATTEMPTS = 400
+APPROVAL_POLL_INTERVAL = 0.05
+
+
 class ScriptedProvider(ModelProvider):
     """Fake provider that plays back a fixed sequence of ChatResults, so tests can drive the
     orchestrator loop deterministically without a live model or network."""
@@ -184,8 +191,8 @@ async def test_run_pauses_for_approval_and_resumes_on_decision(db_session_maker,
     run_task = asyncio.create_task(runner.run(run.id))
 
     approval = None
-    for _ in range(100):
-        await asyncio.sleep(0.02)
+    for _ in range(APPROVAL_POLL_ATTEMPTS):
+        await asyncio.sleep(APPROVAL_POLL_INTERVAL)
         async with db_session_maker() as db:
             result = await db.execute(select(Approval).where(Approval.agent_run_id == run.id))
             approval = result.scalar_one_or_none()
@@ -232,8 +239,8 @@ async def test_run_denied_approval_stops_tool_but_run_continues(db_session_maker
     run_task = asyncio.create_task(runner.run(run.id))
 
     approval = None
-    for _ in range(100):
-        await asyncio.sleep(0.02)
+    for _ in range(APPROVAL_POLL_ATTEMPTS):
+        await asyncio.sleep(APPROVAL_POLL_INTERVAL)
         async with db_session_maker() as db:
             result = await db.execute(select(Approval).where(Approval.agent_run_id == run.id))
             approval = result.scalar_one_or_none()
@@ -321,8 +328,8 @@ async def test_agent_can_switch_model_mid_run(db_session_maker, tmp_path: Path):
 
 
 async def _await_approval(db_session_maker, run_id: str):
-    for _ in range(100):
-        await asyncio.sleep(0.02)
+    for _ in range(APPROVAL_POLL_ATTEMPTS):
+        await asyncio.sleep(APPROVAL_POLL_INTERVAL)
         async with db_session_maker() as db:
             result = await db.execute(select(Approval).where(Approval.agent_run_id == run_id))
             approval = result.scalar_one_or_none()
