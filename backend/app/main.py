@@ -4,7 +4,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-from app.api import routes_agents, routes_approvals, routes_auth, routes_health, routes_models, routes_projects, ws
+from app.api import (
+    routes_agents,
+    routes_approvals,
+    routes_auth,
+    routes_health,
+    routes_models,
+    routes_plan,
+    routes_projects,
+    ws,
+)
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.security import hash_password
@@ -45,6 +54,7 @@ app.include_router(routes_health.router, prefix="/api")
 app.include_router(routes_auth.router, prefix="/api")
 app.include_router(routes_projects.router, prefix="/api")
 app.include_router(routes_agents.router, prefix="/api")
+app.include_router(routes_plan.router, prefix="/api")
 app.include_router(routes_approvals.router, prefix="/api")
 app.include_router(routes_models.router, prefix="/api")
 app.include_router(ws.router)

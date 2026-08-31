@@ -4,6 +4,7 @@ from app.models.approval import Approval
 from app.models.model import Model
 from app.models.model_request import ModelRequest
 from app.models.project import Project
+from app.models.project_task import ProjectTask
 from app.models.provider import Provider
 from app.models.system_event import SystemEvent
 from app.models.tool import Tool
@@ -18,6 +19,7 @@ __all__ = [
     "Model",
     "ModelRequest",
     "Project",
+    "ProjectTask",
     "Provider",
     "SystemEvent",
     "Tool",

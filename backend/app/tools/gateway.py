@@ -13,6 +13,7 @@ from app.tools.cost_tools import CostEstimateTool
 from app.tools.filesystem_tools import FilesystemReadTool, FilesystemWriteTool
 from app.tools.git_tools import GitCommitTool, GitStatusTool
 from app.tools.model_tools import ModelListTool, ModelSwitchTool
+from app.tools.plan_tools import PLAN_TOOL_SCHEMAS, PlanReadTool, PlanSubmitTool
 from app.tools.sandbox import SandboxExecutor, SandboxViolation
 
 TOOL_REGISTRY: dict[str, Tool] = {
@@ -25,6 +26,8 @@ TOOL_REGISTRY: dict[str, Tool] = {
         ModelListTool(),
         ModelSwitchTool(),
         CostEstimateTool(),
+        PlanSubmitTool(),
+        PlanReadTool(),
     )
 }
 
@@ -179,6 +182,8 @@ def tool_definitions_for(allowed_tools: list[str]) -> list[dict[str, Any]]:
             }
         },
     }
+    schemas.update(PLAN_TOOL_SCHEMAS)
+
     defs = []
     for name in allowed_tools:
         tool = TOOL_REGISTRY.get(name)
