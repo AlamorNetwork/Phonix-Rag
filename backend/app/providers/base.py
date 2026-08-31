@@ -60,3 +60,10 @@ class ModelProvider(ABC):
 class ProviderError(RuntimeError):
     """A provider refused or failed a request. Carries the provider's own explanation, so a
     failure is diagnosable from the run record without reproducing it by hand."""
+
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        # Whether trying the same request again could plausibly succeed. A gateway 500 or a
+        # rate limit is worth retrying; a malformed request or a rejected key is not, and
+        # retrying those just burns time and budget (spec section 51).
+        self.retryable = retryable

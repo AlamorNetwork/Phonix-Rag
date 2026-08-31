@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 import time
 from typing import Any
 
@@ -6,6 +8,12 @@ import httpx
 
 from app.core.logging import mask_secrets
 from app.providers.base import ChatResult, ModelProvider, ProviderError, ToolCall, Usage
+
+logger = logging.getLogger(__name__)
+
+# Transient by nature: the same request may well succeed shortly afterwards. Any other 4xx
+# means the gateway will refuse it just as firmly next time.
+RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 class LiaraProvider(ModelProvider):
@@ -22,13 +30,58 @@ class LiaraProvider(ModelProvider):
         base_url: str,
         timeout: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        max_attempts: int = 3,
+        retry_base_delay: float = 2.0,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.max_attempts = max_attempts
+        self.retry_base_delay = retry_base_delay
         # Injectable transport so tests can exercise the real request/response parsing logic
         # against a fake HTTP layer instead of hitting the network.
         self._transport = transport
+
+    async def _request_with_retry(self, method: str, url: str, *, context: str, **kwargs) -> httpx.Response:
+        """Issue a request, retrying the failures that are worth retrying.
+
+        A gateway 5xx or a rate limit is transient - during a real run one flaky 500 otherwise
+        kills the task permanently and stops the whole plan. A 4xx means we sent something the
+        gateway will refuse just as firmly next time, so it fails immediately rather than
+        burning three attempts and the budget on it.
+        """
+        last_error: ProviderError | None = None
+        for attempt in range(self.max_attempts):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout, transport=self._transport) as client:
+                    response = await client.request(
+                        method, url, headers={"Authorization": f"Bearer {self.api_key}"}, **kwargs
+                    )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_error = ProviderError(
+                    f"{self.name} request failed {context}: {type(exc).__name__}", retryable=True
+                )
+            else:
+                if not response.is_error:
+                    return response
+                # raise_for_status() alone gives "400 Bad Request" and nothing else, which says
+                # nothing about *why* the gateway refused - include the body it sent back.
+                last_error = ProviderError(
+                    f"{self.name} returned {response.status_code} {context}: "
+                    f"{mask_secrets(response.text[:600])}",
+                    retryable=response.status_code in RETRYABLE_STATUS,
+                )
+
+            if not last_error.retryable or attempt == self.max_attempts - 1:
+                raise last_error
+
+            delay = self.retry_base_delay * (2**attempt)
+            logger.warning(
+                "%s (attempt %d/%d); retrying in %.1fs", last_error, attempt + 1, self.max_attempts, delay
+            )
+            await asyncio.sleep(delay)
+
+        raise last_error  # pragma: no cover - loop always returns or raises
 
     async def chat(
         self,
@@ -43,20 +96,10 @@ class LiaraProvider(ModelProvider):
             body["tool_choice"] = "auto"
 
         started = time.monotonic()
-        async with httpx.AsyncClient(timeout=self.timeout, transport=self._transport) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=body,
-            )
+        response = await self._request_with_retry(
+            "POST", f"{self.base_url}/chat/completions", context=f"model '{model}'", json=body
+        )
         latency_ms = int((time.monotonic() - started) * 1000)
-        if response.is_error:
-            # raise_for_status() alone gives "400 Bad Request" and nothing else, which says
-            # nothing about *why* the gateway refused - include the body it sent back.
-            raise ProviderError(
-                f"{self.name} returned {response.status_code} for model '{model}': "
-                f"{mask_secrets(response.text[:600])}"
-            )
         data = response.json()
 
         choice = data["choices"][0]["message"]
@@ -88,16 +131,9 @@ class LiaraProvider(ModelProvider):
     async def list_models(self) -> list[dict[str, Any]]:
         """Fetch the gateway's model catalogue. Prices come back per single token; they are
         converted to per-1M here so the registry stores one consistent unit."""
-        async with httpx.AsyncClient(timeout=self.timeout, transport=self._transport) as client:
-            response = await client.get(
-                f"{self.base_url}/models",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-        if response.is_error:
-            raise ProviderError(
-                f"{self.name} returned {response.status_code} listing models: "
-                f"{mask_secrets(response.text[:600])}"
-            )
+        response = await self._request_with_retry(
+            "GET", f"{self.base_url}/models", context="listing models"
+        )
         data = response.json()
         raw_models = data.get("data") or data.get("models") or []
 
