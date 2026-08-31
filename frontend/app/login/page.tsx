@@ -32,10 +32,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-black">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm bg-base-near border border-base-border rounded-lg p-8">
-        <div className="text-emerald-500 font-bold tracking-wide mb-1">PHOENIX FORGE</div>
-        <div className="text-neutral-500 text-xs mb-6">AI Engineering & Infrastructure Command Center</div>
+    <div className="min-h-screen flex items-center justify-center bg-base-black field">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm bg-base-near border border-base-border rounded-xl shadow-panel bg-panel-sheen p-8">
+        <div className="flex items-center gap-2 mb-1"><span className="w-1.5 h-1.5 rounded-full bg-accent-emeraldBright live-dot" /><span className="text-neutral-50 font-semibold tracking-[0.14em] text-sm">PHOENIX FORGE</span></div>
+        <div className="text-2xs text-neutral-500 mb-7 ml-3.5">AI Engineering & Infrastructure Command Center</div>
 
         <label className="block text-xs text-neutral-400 mb-1">Email</label>
         <input
@@ -43,7 +43,7 @@ export default function LoginPage() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full mb-4 bg-base-dark border border-base-border rounded px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-accent-emeraldBright"
+          className="w-full mb-4 bg-base-dark border border-base-border rounded px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-accent-emeraldBright rounded-md"
         />
 
         <label className="block text-xs text-neutral-400 mb-1">Password</label>
@@ -52,7 +52,7 @@ export default function LoginPage() {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full mb-6 bg-base-dark border border-base-border rounded px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-accent-emeraldBright"
+          className="w-full mb-6 bg-base-dark border border-base-border rounded px-3 py-2 text-sm text-neutral-200 focus:outline-none focus:border-accent-emeraldBright rounded-md"
         />
 
         {error && <div className="text-status-critical text-xs mb-4">{error}</div>}
@@ -60,7 +60,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-accent-emerald hover:bg-accent-emeraldBright transition-colors text-sm font-medium rounded py-2 disabled:opacity-50"
+          className="w-full bg-accent-emerald hover:bg-accent-emeraldBright hover:text-base-void text-white transition-colors text-sm font-semibold rounded-md py-2.5 disabled:opacity-50"
         >
           {loading ? "Signing in…" : "Sign in"}
         </button>

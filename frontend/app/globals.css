@@ -7,18 +7,19 @@
 :root {
   color-scheme: dark;
 
-  --ground: #07080a;
-  --surface: #0c0e11;
-  --raised: #12151a;
-  --line: #1f242b;
-  --line-strong: #2b323b;
+  --void: #080b11;
+  --ground: #0b0f16;
+  --surface: #10151e;
+  --raised: #161d28;
+  --line: #222c3a;
+  --line-strong: #31404f;
 
-  --ink: #dfe4ea;
-  --ink-2: #929ca8;
-  --ink-3: #5e6873;
+  --ink: #e3e8ef;
+  --ink-2: #93a1b3;
+  --ink-3: #5f6d80;
 
-  --emerald: #18b47f;
-  --emerald-deep: #0d5c44;
+  --teal: #22c99f;
+  --iris: #9d95ff;
 }
 
 * {
@@ -32,13 +33,12 @@ body {
 }
 
 body {
-  font-feature-settings: "cv05" 1, "ss01" 1;
   -webkit-font-smoothing: antialiased;
 }
 
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -48,14 +48,13 @@ body {
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a424d;
+  background: #3f5165;
 }
 
-/* Keyboard users get a visible focus ring everywhere. */
 :focus-visible {
-  outline: 2px solid var(--emerald);
+  outline: 2px solid var(--teal);
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 @layer utilities {
@@ -63,31 +62,53 @@ body {
     font-variant-numeric: tabular-nums;
   }
 
-  /* A faint grid, the way an ops console reads - not a decorative gradient. */
-  .grid-field {
+  /* A faint field behind the console, the way an instrument panel is bedded rather than
+     floating on flat black. */
+  .field {
     background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
-    background-size: 44px 44px;
+      radial-gradient(900px 420px at 12% -8%, rgba(34, 201, 159, 0.05), transparent 60%),
+      radial-gradient(700px 380px at 88% -12%, rgba(124, 116, 232, 0.045), transparent 62%);
   }
 
-  .risk-READ { color: #6f8ea6; }
-  .risk-LOW { color: #4fa87a; }
-  .risk-MEDIUM { color: #d0a03a; }
-  .risk-HIGH { color: #d05a5a; }
-  .risk-CRITICAL { color: #ff6b6b; font-weight: 700; }
+  .hairline {
+    background-image: linear-gradient(to right, transparent, var(--line) 18%, var(--line) 82%, transparent);
+  }
+
+  .risk-READ { color: #68a3c9; }
+  .risk-LOW { color: #3fb984; }
+  .risk-MEDIUM { color: #e0a33c; }
+  .risk-HIGH { color: #e2606b; }
+  .risk-CRITICAL { color: #ff7b85; font-weight: 700; }
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.82); }
 }
 .live-dot {
-  animation: pulse-dot 1.8s ease-in-out infinite;
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(320%); }
+}
+/* A slow sweep along the top of the console while agents are actually working - the one
+   piece of motion, and it means something. */
+.working-sweep::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  height: 1px;
+  width: 30%;
+  background: linear-gradient(to right, transparent, var(--teal), transparent);
+  animation: sweep 3.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-dot {
+  .live-dot,
+  .working-sweep::after {
     animation: none;
   }
   * {

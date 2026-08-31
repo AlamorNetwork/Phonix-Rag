@@ -3,7 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
-import { Chip, Metric, Panel, ROLE_HUE, RISK_HUE, STATE_HUE, TaskBar, TimeAgo } from "@/components/ui";
+import {
+  Chip,
+  Metric,
+  Panel,
+  ROLE_DOT,
+  ROLE_HUE,
+  RISK_HUE,
+  STATE_HUE,
+  Sparkline,
+  TaskBar,
+  TimeAgo,
+} from "@/components/ui";
 import { api } from "@/lib/api";
 
 type PendingApproval = {
@@ -47,6 +58,9 @@ type RecentEvent = {
   created_at: string;
 };
 
+type SeriesPoint = { bucket: string; cost_usd: number; requests: number };
+type RoleLoad = { role: string; model_id: string | null; runs_active: number; cost_usd: number; requests: number };
+
 type Dashboard = {
   pending_approvals: PendingApproval[];
   active_runs: ActiveRun[];
@@ -61,9 +75,12 @@ type Dashboard = {
   tokens_out: number;
   projects: ProjectCard[];
   recent_events: RecentEvent[];
+  cost_series: SeriesPoint[];
+  role_load: RoleLoad[];
 };
 
 const REFRESH_MS = 5000;
+const ROLE_ORDER = ["manager", "architect", "coder", "reviewer"];
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
@@ -73,23 +90,18 @@ export default function DashboardPage() {
     try {
       setData(await api<Dashboard>("/dashboard"));
     } catch {
-      /* keep showing the last good snapshot rather than blanking the console */
+      /* keep the last good snapshot rather than blanking the console */
     }
   }, []);
 
-  // Agents work while nobody is looking, so the console keeps itself current. Each refresh is
-  // scheduled only after the previous one finishes: a fixed interval would stack requests on
-  // top of a slow one and drown both the tab and the server.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-
     const tick = async () => {
       await load();
       if (!cancelled) timer = setTimeout(tick, REFRESH_MS);
     };
     tick();
-
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -100,7 +112,7 @@ export default function DashboardPage() {
     setDeciding(id);
     try {
       await api(`/approvals/${id}/${action}`, { method: "POST", body: "{}" });
-      load();
+      await load();
     } finally {
       setDeciding(null);
     }
@@ -115,36 +127,85 @@ export default function DashboardPage() {
   }
 
   const waiting = data.pending_approvals.length;
-  const tokensTotal = data.tokens_in + data.tokens_out;
+  const working = data.active_runs.length;
+  const costs = data.cost_series.map((p) => p.cost_usd);
+  const reqs = data.cost_series.map((p) => p.requests);
+  const byRole = new Map(data.role_load.map((r) => [r.role, r]));
 
   return (
-    <AppShell
-      title="Command Center"
-      subtitle="What needs you, what is running, what it costs"
-      actions={
-        <span className="flex items-center gap-1.5 text-2xs text-neutral-600">
-          <span className="w-1.5 h-1.5 rounded-full bg-accent-emeraldBright live-dot" />
-          live
-        </span>
-      }
-    >
-      {/* Anything waiting on a human is the first thing on the page - it is the one thing
-          that will not resolve itself. */}
+    <AppShell title="Command Center" subtitle="What needs you · what is running · what it costs">
+      {/* Status band: the state of the whole system in one line, before any detail. */}
+      <div
+        className={`relative overflow-hidden rounded-xl border bg-base-near bg-panel-sheen shadow-panel px-5 py-4 mb-5 ${
+          waiting > 0
+            ? "border-status-warning/40"
+            : working > 0
+              ? "border-accent-emeraldBright/30 working-sweep"
+              : "border-base-border"
+        }`}
+      >
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                waiting > 0 ? "bg-status-warning" : working > 0 ? "bg-accent-emeraldBright" : "bg-neutral-700"
+              } ${waiting > 0 || working > 0 ? "live-dot" : ""}`}
+            />
+            <span className="text-[15px] font-semibold tracking-tight text-neutral-50">
+              {waiting > 0
+                ? `${waiting} decision${waiting === 1 ? "" : "s"} waiting on you`
+                : working > 0
+                  ? `${working} agent${working === 1 ? "" : "s"} working`
+                  : "Idle"}
+            </span>
+          </div>
+
+          <span className="flex-1" />
+
+          {/* The team, always visible: who exists, who is busy right now. */}
+          <div className="flex items-center gap-1">
+            {ROLE_ORDER.map((role) => {
+              const load = byRole.get(role);
+              const active = (load?.runs_active ?? 0) > 0;
+              return (
+                <div
+                  key={role}
+                  title={`${role}${load?.model_id ? ` · ${load.model_id}` : ""}${
+                    active ? " · working" : ""
+                  }`}
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${
+                    active ? ROLE_HUE[role] : "border-base-border text-neutral-600"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${active ? ROLE_DOT[role] : "bg-neutral-700"} ${
+                      active ? "live-dot" : ""
+                    }`}
+                  />
+                  <span className="text-2xs capitalize">{role}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       {waiting > 0 && (
         <Panel
-          title={`${waiting} action${waiting === 1 ? "" : "s"} waiting on you`}
+          title="Waiting on you"
           note="Agents are paused until you decide"
-          className="mb-6 border-status-warning/40"
+          accent="warning"
+          className="mb-5"
         >
-          <div className="divide-y divide-base-border">
+          <div className="divide-y divide-base-border/70">
             {data.pending_approvals.map((a) => (
               <div key={a.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
                 <Chip label={a.risk_level} tone={RISK_HUE[a.risk_level]} />
                 <div className="flex-1 min-w-[16rem]">
                   <div className="text-[13px] text-neutral-200">{a.reason}</div>
-                  <div className="text-2xs text-neutral-600 mt-0.5 flex gap-2">
+                  <div className="text-2xs text-neutral-500 mt-0.5 flex gap-2">
                     {a.project_name && (
-                      <Link href={`/projects/${a.project_id}`} className="hover:text-neutral-400">
+                      <Link href={`/projects/${a.project_id}`} className="hover:text-neutral-300">
                         {a.project_name}
                       </Link>
                     )}
@@ -155,14 +216,14 @@ export default function DashboardPage() {
                   <button
                     onClick={() => decide(a.id, "approve")}
                     disabled={deciding === a.id}
-                    className="bg-accent-emerald hover:bg-accent-emeraldBright text-white text-2xs font-medium rounded px-3 py-1.5 transition-colors disabled:opacity-50"
+                    className="bg-accent-emerald hover:bg-accent-emeraldBright hover:text-base-void text-white text-2xs font-semibold rounded-md px-3.5 py-1.5 transition-colors disabled:opacity-50"
                   >
                     Approve
                   </button>
                   <button
                     onClick={() => decide(a.id, "deny")}
                     disabled={deciding === a.id}
-                    className="border border-status-critical/40 text-status-critical hover:bg-status-critical/15 text-2xs rounded px-3 py-1.5 transition-colors disabled:opacity-50"
+                    className="border border-status-critical/40 text-status-critical hover:bg-status-critical/15 text-2xs rounded-md px-3.5 py-1.5 transition-colors disabled:opacity-50"
                   >
                     Deny
                   </button>
@@ -173,51 +234,55 @@ export default function DashboardPage() {
         </Panel>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <Metric
           label="Waiting on you"
           value={String(waiting)}
-          tone={waiting > 0 ? "text-status-warning" : "text-neutral-100"}
-          sub={waiting > 0 ? "agents are paused" : "nothing blocked"}
+          urgent={waiting > 0}
+          tone={waiting > 0 ? "text-status-warning" : "text-neutral-50"}
+          sub={waiting > 0 ? "agents paused" : "nothing blocked"}
           href="/approvals"
         />
         <Metric
-          label="Agents working"
-          value={String(data.active_runs.length)}
-          sub={`${data.projects_executing} project${data.projects_executing === 1 ? "" : "s"} executing`}
-          tone={data.active_runs.length > 0 ? "text-accent-emeraldBright" : "text-neutral-100"}
+          label="Requests"
+          value={String(reqs.reduce((a, b) => a + b, 0))}
+          sub="last 24 hours"
+          spark={reqs}
+          sparkColor="#9d95ff"
         />
         <Metric
-          label="Tasks done"
+          label="Tasks"
           value={`${data.tasks_done}/${data.tasks_total}`}
           sub={data.tasks_blocked > 0 ? `${data.tasks_blocked} blocked` : "none blocked"}
-          tone={data.tasks_blocked > 0 ? "text-status-critical" : "text-neutral-100"}
+          tone={data.tasks_blocked > 0 ? "text-status-critical" : "text-neutral-50"}
         />
         <Metric
           label="Spend"
           value={`$${data.cost_total_usd.toFixed(2)}`}
-          sub={`$${data.cost_today_usd.toFixed(4)} today · ${(tokensTotal / 1000).toFixed(0)}k tokens`}
+          sub={`$${data.cost_today_usd.toFixed(4)} today`}
+          spark={costs}
+          sparkColor="#22c99f"
           href="/costs"
         />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 flex flex-col gap-6">
-          {data.active_runs.length > 0 && (
-            <Panel title="Working now">
-              <div className="divide-y divide-base-border">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <div className="xl:col-span-2 flex flex-col gap-5">
+          {working > 0 && (
+            <Panel title="Working now" accent="teal">
+              <div className="divide-y divide-base-border/70">
                 {data.active_runs.map((r) => (
                   <Link
                     key={r.id}
                     href={`/projects/${r.project_id}`}
                     className="px-4 py-2.5 flex items-center gap-3 hover:bg-base-graphite transition-colors"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent-emeraldBright live-dot shrink-0" />
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 live-dot ${ROLE_DOT[r.role]}`} />
                     <Chip label={r.role} tone={ROLE_HUE[r.role]} />
                     <span className="flex-1 min-w-0 text-[13px] text-neutral-300 truncate">
                       {r.input_message}
                     </span>
-                    <span className="text-2xs text-neutral-600 font-mono truncate max-w-[12rem] hidden md:block">
+                    <span className="text-2xs text-neutral-600 font-mono truncate max-w-[11rem] hidden md:block">
                       {r.model_id}
                     </span>
                   </Link>
@@ -229,26 +294,26 @@ export default function DashboardPage() {
           <Panel
             title="Projects"
             action={
-              <Link href="/projects" className="text-2xs text-emerald-500 hover:text-emerald-400">
+              <Link href="/projects" className="text-2xs text-accent-emeraldBright hover:underline">
                 All projects →
               </Link>
             }
           >
-            <div className="divide-y divide-base-border">
+            <div className="divide-y divide-base-border/70">
               {data.projects.map((p) => (
                 <Link
                   key={p.id}
                   href={`/projects/${p.id}`}
-                  className="block px-4 py-3 hover:bg-base-graphite transition-colors"
+                  className="block px-4 py-3 hover:bg-base-graphite transition-colors group"
                 >
                   <div className="flex items-center gap-2.5 mb-1">
-                    <span className="text-[13px] font-medium text-neutral-100 truncate">{p.name}</span>
+                    <span className="text-[13px] font-medium text-neutral-100 truncate group-hover:text-white">
+                      {p.name}
+                    </span>
                     <Chip label={p.status} tone={STATE_HUE[p.status]} />
                     <span className="flex-1" />
                     {p.cost_usd > 0 && (
-                      <span className="text-2xs text-neutral-500 num shrink-0">
-                        ${p.cost_usd.toFixed(4)}
-                      </span>
+                      <span className="text-2xs text-neutral-500 num shrink-0">${p.cost_usd.toFixed(4)}</span>
                     )}
                   </div>
                   <p className="text-2xs text-neutral-600 line-clamp-1 mb-2">{p.idea}</p>
@@ -263,10 +328,16 @@ export default function DashboardPage() {
                 </Link>
               ))}
               {data.projects.length === 0 && (
-                <div className="px-4 py-6 text-center">
-                  <p className="text-sm text-neutral-500 mb-2">No projects yet.</p>
-                  <Link href="/projects" className="text-2xs text-emerald-500 hover:text-emerald-400">
-                    Describe an idea to get started →
+                <div className="px-4 py-8 text-center">
+                  <p className="text-sm text-neutral-400 mb-1">No projects yet</p>
+                  <p className="text-2xs text-neutral-600 mb-3">
+                    Describe an idea and the Manager will turn it into a costed plan.
+                  </p>
+                  <Link
+                    href="/projects"
+                    className="inline-block bg-accent-emerald hover:bg-accent-emeraldBright hover:text-base-void text-white text-2xs font-semibold rounded-md px-3.5 py-1.5 transition-colors"
+                  >
+                    New project
                   </Link>
                 </div>
               )}
@@ -274,27 +345,40 @@ export default function DashboardPage() {
           </Panel>
         </div>
 
-        <Panel title="Activity" note="Everything the system just did" className="self-start">
-          <div className="max-h-[36rem] overflow-y-auto divide-y divide-base-border/60">
-            {data.recent_events.map((e) => (
-              <div key={e.id} className="px-4 py-2">
-                <div className="flex items-baseline gap-2">
-                  <span className={`text-2xs font-mono ${eventTone(e.event_type)}`}>{e.event_type}</span>
-                  <span className="flex-1" />
-                  <span className="text-2xs text-neutral-700">
-                    <TimeAgo iso={e.created_at} />
-                  </span>
-                </div>
-                <div className="text-2xs text-neutral-600 font-mono truncate mt-0.5">
-                  {summarise(e.payload)}
+        <div className="flex flex-col gap-5">
+          {costs.length > 1 && (
+            <Panel title="Spend" note="Per hour, last 24h">
+              <div className="px-4 pt-3 pb-4">
+                <Sparkline values={costs} stroke="#22c99f" height={64} />
+                <div className="flex justify-between text-2xs text-neutral-600 num mt-2">
+                  <span>24h ago</span>
+                  <span>${Math.max(...costs).toFixed(4)} peak</span>
+                  <span>now</span>
                 </div>
               </div>
-            ))}
-            {data.recent_events.length === 0 && (
-              <div className="px-4 py-6 text-2xs text-neutral-600">Nothing yet.</div>
-            )}
-          </div>
-        </Panel>
+            </Panel>
+          )}
+
+          <Panel title="Activity" note="Newest first" className="self-start w-full">
+            <div className="max-h-[30rem] overflow-y-auto divide-y divide-base-border/40">
+              {data.recent_events.map((e) => (
+                <div key={e.id} className="px-4 py-2 hover:bg-base-graphite/60 transition-colors">
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-2xs font-mono ${eventTone(e.event_type)}`}>{e.event_type}</span>
+                    <span className="flex-1" />
+                    <span className="text-2xs text-neutral-700">
+                      <TimeAgo iso={e.created_at} />
+                    </span>
+                  </div>
+                  <div className="text-2xs text-neutral-600 truncate mt-0.5">{summarise(e.payload)}</div>
+                </div>
+              ))}
+              {data.recent_events.length === 0 && (
+                <div className="px-4 py-6 text-2xs text-neutral-600">Nothing yet.</div>
+              )}
+            </div>
+          </Panel>
+        </div>
       </div>
     </AppShell>
   );
@@ -305,12 +389,12 @@ function eventTone(type: string): string {
   if (type.includes("denied") || type.includes("blocked") || type.includes("failed") || type.includes("rejected"))
     return "text-status-critical";
   if (type.includes("approved") || type.includes("completed")) return "text-status-success";
-  if (type.startsWith("cost.") || type.startsWith("model.")) return "text-status-info";
+  if (type.startsWith("cost.") || type.startsWith("model.")) return "text-accent-irisBright";
   return "text-neutral-500";
 }
 
-/** Events carry very different payloads; show the field that actually says what happened
- *  rather than dumping raw JSON at the reader. */
+/** Events carry very different payloads; show the field that says what happened rather than
+ *  dumping raw JSON at the reader. */
 function summarise(payload: Record<string, unknown>): string {
   for (const key of ["title", "reason", "tool", "detail", "model", "status", "agent_role"]) {
     const value = payload[key];

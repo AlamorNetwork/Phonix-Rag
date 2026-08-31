@@ -5,32 +5,37 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Deep blue-slate, not pure black. Neutrals carry a cool bias toward the accent so
+        // they read as chosen rather than inherited, and surfaces stack in real steps so the
+        // interface has depth instead of being one flat sheet of grey boxes.
         base: {
-          black: "#07080a",
-          near: "#0c0e11",
-          graphite: "#12151a",
-          dark: "#171b21",
-          border: "#1f242b",
-          borderStrong: "#2b323b",
+          void: "#080b11",
+          black: "#0b0f16",
+          near: "#10151e",
+          graphite: "#161d28",
+          dark: "#1c2532",
+          border: "#222c3a",
+          borderStrong: "#31404f",
         },
+        // Two accents that mean different things: teal is the system working, iris is a human
+        // decision. A single lone accent is what made the old palette read as generic.
         accent: {
-          emerald: "#0d5c44",
-          emeraldBright: "#18b47f",
+          emerald: "#0e7c63",
+          emeraldBright: "#22c99f",
+          iris: "#7c74e8",
+          irisBright: "#9d95ff",
         },
-        // Semantic state, kept separate from the accent hue so "it worked" never reads as
-        // "this is the brand colour".
         status: {
-          success: "#4fa87a",
-          warning: "#d0a03a",
-          critical: "#d05a5a",
-          info: "#6f8ea6",
+          success: "#3fb984",
+          warning: "#e0a33c",
+          critical: "#e2606b",
+          info: "#68a3c9",
         },
-        // One hue per agent role, so a role is recognisable at a glance across every screen.
         role: {
-          manager: "#c9922f",
-          architect: "#9b7fd4",
-          coder: "#18b47f",
-          reviewer: "#5b9dd9",
+          manager: "#e0a33c",
+          architect: "#9d95ff",
+          coder: "#22c99f",
+          reviewer: "#68a3c9",
         },
       },
       fontFamily: {
@@ -39,9 +44,14 @@ const config: Config = {
       },
       fontSize: {
         "2xs": ["0.6875rem", { lineHeight: "1rem" }],
+        display: ["2.75rem", { lineHeight: "1", letterSpacing: "-0.02em" }],
       },
       boxShadow: {
-        panel: "0 1px 0 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.8)",
+        panel: "0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 32px -18px rgba(0,0,0,0.9)",
+        glow: "0 0 0 1px rgba(34,201,159,0.25), 0 0 28px -6px rgba(34,201,159,0.35)",
+      },
+      backgroundImage: {
+        "panel-sheen": "linear-gradient(160deg, rgba(255,255,255,0.035), transparent 45%)",
       },
     },
   },

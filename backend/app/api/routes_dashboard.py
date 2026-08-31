@@ -63,6 +63,20 @@ class RecentEvent(BaseModel):
     created_at: datetime
 
 
+class SeriesPoint(BaseModel):
+    bucket: str
+    cost_usd: float
+    requests: int
+
+
+class RoleLoad(BaseModel):
+    role: str
+    model_id: str | None
+    runs_active: int
+    cost_usd: float
+    requests: int
+
+
 class DashboardResponse(BaseModel):
     # Things wanting a human come first: this is the gate the whole product is built around.
     pending_approvals: list[PendingApproval]
@@ -78,6 +92,8 @@ class DashboardResponse(BaseModel):
     tokens_out: int
     projects: list[ProjectCard]
     recent_events: list[RecentEvent]
+    cost_series: list[SeriesPoint]
+    role_load: list[RoleLoad]
 
 
 @router.get("/dashboard", response_model=DashboardResponse)
@@ -186,6 +202,39 @@ async def dashboard(
         await db.execute(select(SystemEvent).order_by(SystemEvent.created_at.desc()).limit(25))
     ).scalars().all()
 
+    # Spend per hour over the last day. A number alone says what it is; the shape says whether
+    # it is accelerating, which is the thing you would actually act on.
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    hour = func.strftime("%Y-%m-%dT%H", ModelRequest.created_at) if _is_sqlite(db) else func.to_char(
+        ModelRequest.created_at, "YYYY-MM-DD\"T\"HH24"
+    )
+    series_rows = (
+        await db.execute(
+            select(hour, func.coalesce(func.sum(cast(SPEND, Float)), 0.0), func.count(ModelRequest.id))
+            .where(ModelRequest.created_at >= since)
+            .group_by(hour)
+            .order_by(hour)
+        )
+    ).all()
+
+    role_rows = (
+        await db.execute(
+            select(
+                Agent.role,
+                func.count(ModelRequest.id),
+                func.coalesce(func.sum(cast(SPEND, Float)), 0.0),
+            )
+            .join(AgentRun, AgentRun.agent_id == Agent.id)
+            .join(ModelRequest, ModelRequest.agent_run_id == AgentRun.id)
+            .group_by(Agent.role)
+        )
+    ).all()
+    active_by_role: dict[str, int] = {}
+    model_by_role: dict[str, str | None] = {}
+    for r, role, model_id, _name in runs:
+        active_by_role[role] = active_by_role.get(role, 0) + 1
+        model_by_role.setdefault(role, model_id)
+
     return DashboardResponse(
         pending_approvals=[
             PendingApproval(
@@ -222,6 +271,17 @@ async def dashboard(
         tokens_in=tokens[0],
         tokens_out=tokens[1],
         projects=projects,
+        cost_series=[SeriesPoint(bucket=str(r[0]), cost_usd=round(float(r[1]), 6), requests=r[2]) for r in series_rows],
+        role_load=[
+            RoleLoad(
+                role=row[0],
+                model_id=model_by_role.get(row[0]),
+                runs_active=active_by_role.get(row[0], 0),
+                requests=row[1],
+                cost_usd=round(float(row[2]), 6),
+            )
+            for row in role_rows
+        ],
         recent_events=[
             RecentEvent(
                 id=e.id,
@@ -233,3 +293,9 @@ async def dashboard(
             for e in events
         ],
     )
+
+
+def _is_sqlite(db: AsyncSession) -> bool:
+    """Hour bucketing differs between the SQLite the tests run on and the Postgres that
+    production uses; neither has a portable spelling for it."""
+    return db.bind.dialect.name == "sqlite"
