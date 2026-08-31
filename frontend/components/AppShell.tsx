@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { api, clearToken, getToken } from "@/lib/api";
 
@@ -18,10 +17,12 @@ export function AppShell({
   subtitle?: string;
   actions?: React.ReactNode;
 }) {
-  const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [checked, setChecked] = useState(false);
 
+  // Runs once. It previously depended on the router object, which is not a stable identity -
+  // the effect re-fired on every render, so each render started another /auth/me and set
+  // state again, and the page spun until the tab locked up.
   useEffect(() => {
     if (!getToken()) {
       window.location.assign("/login");
@@ -34,7 +35,7 @@ export function AppShell({
         window.location.assign("/login");
       })
       .finally(() => setChecked(true));
-  }, [router]);
+  }, []);
 
   if (!checked) {
     return (

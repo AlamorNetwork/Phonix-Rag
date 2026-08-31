@@ -69,17 +69,31 @@ export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    api<Dashboard>("/dashboard")
-      .then(setData)
-      .catch(() => {});
+  const load = useCallback(async () => {
+    try {
+      setData(await api<Dashboard>("/dashboard"));
+    } catch {
+      /* keep showing the last good snapshot rather than blanking the console */
+    }
   }, []);
 
+  // Agents work while nobody is looking, so the console keeps itself current. Each refresh is
+  // scheduled only after the previous one finishes: a fixed interval would stack requests on
+  // top of a slow one and drown both the tab and the server.
   useEffect(() => {
-    load();
-    // Agents work while nobody is looking, so the console keeps itself current.
-    const timer = setInterval(load, REFRESH_MS);
-    return () => clearInterval(timer);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = async () => {
+      await load();
+      if (!cancelled) timer = setTimeout(tick, REFRESH_MS);
+    };
+    tick();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [load]);
 
   async function decide(id: string, action: "approve" | "deny") {
