@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
-import { api, clearToken, getToken } from "@/lib/api";
+import { api, ApiError, clearToken, getToken } from "@/lib/api";
 
 type Me = { id: string; email: string };
 
@@ -30,9 +30,14 @@ export function AppShell({
     }
     api<Me>("/auth/me")
       .then(setMe)
-      .catch(() => {
-        clearToken();
-        window.location.assign("/login");
+      .catch((err) => {
+        // Only a rejected credential signs you out. A network blip or a backend restart is
+        // not evidence the token is bad, and throwing the session away over one would log
+        // people out mid-run over a flaky connection.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          clearToken();
+          window.location.assign("/login");
+        }
       })
       .finally(() => setChecked(true));
   }, []);
