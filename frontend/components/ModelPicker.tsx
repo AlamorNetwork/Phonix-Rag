@@ -101,8 +101,8 @@ export function ModelPicker({ projectId, refreshKey }: { projectId: string; refr
               }`}
             >
               <div className="font-mono break-all">{m.model_id}</div>
-              <div className="text-neutral-600 mt-0.5">
-                ${m.input_price_per_1k.toFixed(5)} in / ${m.output_price_per_1k.toFixed(5)} out per 1k
+              <div className="text-neutral-600 mt-0.5 tabular-nums">
+                ${m.input_price_per_1m.toFixed(2)} in / ${m.output_price_per_1m.toFixed(2)} out per 1M
                 {m.context_window ? ` · ${(m.context_window / 1000).toFixed(0)}k ctx` : ""}
               </div>
             </button>

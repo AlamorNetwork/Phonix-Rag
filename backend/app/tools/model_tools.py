@@ -28,8 +28,8 @@ class ModelListTool(Tool):
             "models": [
                 {
                     "model_id": m.model_id,
-                    "input_price_per_1k": m.input_price_per_1k,
-                    "output_price_per_1k": m.output_price_per_1k,
+                    "input_price_per_1m": m.input_price_per_1m,
+                    "output_price_per_1m": m.output_price_per_1m,
                     "context_window": m.context_window,
                 }
                 for m in models

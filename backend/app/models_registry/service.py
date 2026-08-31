@@ -30,8 +30,8 @@ async def seed_liara_provider(db: AsyncSession, settings: Settings) -> tuple[Pro
         model = Model(
             provider_id=provider.id,
             model_id=settings.liara_default_model,
-            input_price_per_1k=0.0,
-            output_price_per_1k=0.0,
+            input_price_per_1m=0.0,
+            output_price_per_1m=0.0,
             context_window=128_000,
             enabled=True,
         )
@@ -71,15 +71,15 @@ async def sync_models_from_provider(db: AsyncSession, settings: Settings) -> int
                 Model(
                     provider_id=provider_row.id,
                     model_id=entry["model_id"],
-                    input_price_per_1k=entry["input_price_per_1k"],
-                    output_price_per_1k=entry["output_price_per_1k"],
+                    input_price_per_1m=entry["input_price_per_1m"],
+                    output_price_per_1m=entry["output_price_per_1m"],
                     context_window=entry["context_window"],
                     enabled=True,
                 )
             )
         else:
-            row.input_price_per_1k = entry["input_price_per_1k"]
-            row.output_price_per_1k = entry["output_price_per_1k"]
+            row.input_price_per_1m = entry["input_price_per_1m"]
+            row.output_price_per_1m = entry["output_price_per_1m"]
             row.context_window = entry["context_window"]
 
     await db.commit()

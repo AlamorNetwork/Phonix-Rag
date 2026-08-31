@@ -5,8 +5,8 @@ class ModelResponse(BaseModel):
     id: str
     provider_id: str
     model_id: str
-    input_price_per_1k: float
-    output_price_per_1k: float
+    input_price_per_1m: float
+    output_price_per_1m: float
     context_window: int
     enabled: bool
 

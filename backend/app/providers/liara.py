@@ -97,8 +97,8 @@ class LiaraProvider(ModelProvider):
                 {
                     "model_id": m.get("id"),
                     "context_window": m.get("context_length") or 0,
-                    "input_price_per_1k": _per_1k(pricing.get("prompt")),
-                    "output_price_per_1k": _per_1k(pricing.get("completion")),
+                    "input_price_per_1m": _per_1m(pricing.get("prompt")),
+                    "output_price_per_1m": _per_1m(pricing.get("completion")),
                 }
             )
         return [m for m in models if m["model_id"]]
@@ -106,20 +106,21 @@ class LiaraProvider(ModelProvider):
     def estimate_cost(
         self,
         *,
-        input_price_per_1k: float,
-        output_price_per_1k: float,
+        input_price_per_1m: float,
+        output_price_per_1m: float,
         estimated_input_tokens: int,
         estimated_output_tokens: int,
     ) -> float:
         return (
-            (estimated_input_tokens / 1000) * input_price_per_1k
-            + (estimated_output_tokens / 1000) * output_price_per_1k
+            (estimated_input_tokens / 1_000_000) * input_price_per_1m
+            + (estimated_output_tokens / 1_000_000) * output_price_per_1m
         )
 
 
-def _per_1k(price: Any) -> float:
-    """Liara quotes prices per single token; the registry stores per 1k tokens."""
+def _per_1m(price: Any) -> float:
+    """The API returns a price per single token; the registry stores per 1M tokens, which is
+    the unit Liara's own pricing page and every other provider quotes."""
     try:
-        return float(price) * 1000
+        return float(price) * 1_000_000
     except (TypeError, ValueError):
         return 0.0

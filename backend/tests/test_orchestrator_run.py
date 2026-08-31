@@ -39,7 +39,7 @@ class ScriptedProvider(ModelProvider):
         self.calls += 1
         return self._script.pop(0)
 
-    def estimate_cost(self, *, input_price_per_1k, output_price_per_1k, estimated_input_tokens, estimated_output_tokens) -> float:
+    def estimate_cost(self, *, input_price_per_1m, output_price_per_1m, estimated_input_tokens, estimated_output_tokens) -> float:
         return 0.0001
 
 
@@ -80,8 +80,8 @@ async def _make_project_agent_run(db_session_maker, *, budget_usd: float = 10.0,
         model_row = Model(
             provider_id=provider_row.id,
             model_id="fake-model",
-            input_price_per_1k=0.0,
-            output_price_per_1k=0.0,
+            input_price_per_1m=0.0,
+            output_price_per_1m=0.0,
             context_window=8192,
             enabled=True,
         )
@@ -282,8 +282,8 @@ async def test_agent_can_switch_model_mid_run(db_session_maker, tmp_path: Path):
             Model(
                 provider_id=provider_row.id,
                 model_id="other-model",
-                input_price_per_1k=0.0,
-                output_price_per_1k=0.0,
+                input_price_per_1m=0.0,
+                output_price_per_1m=0.0,
                 context_window=8192,
                 enabled=True,
             )

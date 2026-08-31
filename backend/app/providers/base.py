@@ -50,8 +50,8 @@ class ModelProvider(ABC):
     def estimate_cost(
         self,
         *,
-        input_price_per_1k: float,
-        output_price_per_1k: float,
+        input_price_per_1m: float,
+        output_price_per_1m: float,
         estimated_input_tokens: int,
         estimated_output_tokens: int,
     ) -> float: ...

@@ -79,8 +79,8 @@ export type ModelInfo = {
   id: string;
   provider_id: string;
   model_id: string;
-  input_price_per_1k: number;
-  output_price_per_1k: number;
+  input_price_per_1m: number;
+  output_price_per_1m: number;
   context_window: number;
   enabled: boolean;
 };

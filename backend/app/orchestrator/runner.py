@@ -174,14 +174,14 @@ class AgentRunner:
                 agent = await db.get(Agent, config.agent_id)
                 model = await self._resolve_model(db, agent)
                 model_id = model.model_id
-                input_price_per_1k = model.input_price_per_1k
-                output_price_per_1k = model.output_price_per_1k
+                input_price_per_1m = model.input_price_per_1m
+                output_price_per_1m = model.output_price_per_1m
 
             estimated_input_tokens = self.cost_engine.estimate_tokens(json.dumps(messages))
             estimated_output_tokens = 500
             estimated_cost = self.provider.estimate_cost(
-                input_price_per_1k=input_price_per_1k,
-                output_price_per_1k=output_price_per_1k,
+                input_price_per_1m=input_price_per_1m,
+                output_price_per_1m=output_price_per_1m,
                 estimated_input_tokens=estimated_input_tokens,
                 estimated_output_tokens=estimated_output_tokens,
             )
@@ -203,8 +203,8 @@ class AgentRunner:
                     model_id=model_id,
                     estimated_cost=estimated_cost,
                     chat_result=chat_result,
-                    input_price_per_1k=input_price_per_1k,
-                    output_price_per_1k=output_price_per_1k,
+                    input_price_per_1m=input_price_per_1m,
+                    output_price_per_1m=output_price_per_1m,
                 )
                 actual_cost = model_request.actual_cost
             await self.event_bus.publish(

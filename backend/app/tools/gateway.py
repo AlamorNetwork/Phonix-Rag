@@ -9,6 +9,7 @@ from app.events.bus import EventBus, event_bus
 from app.models.tool_execution import ToolExecution
 from app.policies.risk import PolicyEngine, policy_engine
 from app.tools.base import Tool, ToolContext
+from app.tools.cost_tools import CostEstimateTool
 from app.tools.filesystem_tools import FilesystemReadTool, FilesystemWriteTool
 from app.tools.git_tools import GitCommitTool, GitStatusTool
 from app.tools.model_tools import ModelListTool, ModelSwitchTool
@@ -23,6 +24,7 @@ TOOL_REGISTRY: dict[str, Tool] = {
         GitCommitTool(),
         ModelListTool(),
         ModelSwitchTool(),
+        CostEstimateTool(),
     )
 }
 
@@ -154,6 +156,24 @@ def tool_definitions_for(allowed_tools: list[str]) -> list[dict[str, Any]]:
         "model.list": {},
         "model.switch": {
             "model_id": {"type": "string", "description": "model id from model.list, e.g. qwen/qwen3.8-max"}
+        },
+        "cost.estimate": {
+            "steps": {
+                "type": "array",
+                "description": "the steps you plan to carry out, in order",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "short name for the step"},
+                        "role": {"type": "string", "description": "which agent role does it, e.g. coder"},
+                        "model_id": {"type": "string", "description": "model for this step; defaults to the current one"},
+                        "input_tokens": {"type": "integer", "description": "rough input tokens for one run"},
+                        "output_tokens": {"type": "integer", "description": "rough output tokens for one run"},
+                        "runs": {"type": "integer", "description": "how many times this step repeats"},
+                    },
+                    "required": ["name"],
+                },
+            }
         },
     }
     defs = []
