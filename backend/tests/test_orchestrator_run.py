@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
 from app.approvals.service import ApprovalEngine, approval_engine
 from app.core.config import Settings
@@ -44,10 +43,16 @@ class ScriptedProvider(ModelProvider):
 
 
 @pytest.fixture
-async def db_session_maker():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
+async def db_session_maker(tmp_path: Path):
+    # A real file-backed DB, not a single shared :memory: connection: the orchestrator holds
+    # one session open for the whole run (including while suspended on a human approval) while
+    # the test polls with a second, concurrent session. A single shared in-memory connection
+    # (e.g. via StaticPool) lets those two sessions' statements interleave on the same
+    # connection/cursor state and corrupts SQLAlchemy's bookkeeping (observed as spurious
+    # "Could not refresh instance" errors). Separate connections to the same file avoids that,
+    # matching how the orchestrator's session and an API request's session are genuinely
+    # independent connections against Postgres in production.
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield async_sessionmaker(engine, expire_on_commit=False)
