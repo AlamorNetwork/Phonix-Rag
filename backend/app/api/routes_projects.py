@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.service import seed_project_agents
 from app.api.deps import get_current_user
 from app.core.config import Settings, get_settings
 from app.core.workspaces import workspace_path_for
@@ -30,6 +31,10 @@ async def create_project(
     workspace_root.mkdir(parents=True, exist_ok=True)
     db.add(Workspace(project_id=project.id, path=str(workspace_root)))
     await db.commit()
+
+    # The whole team exists from the moment the project does, so its roles and models are
+    # visible and adjustable before anything runs.
+    await seed_project_agents(db, project.id, settings)
 
     return project
 

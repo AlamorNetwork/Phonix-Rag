@@ -20,6 +20,7 @@ class AgentResponse(BaseModel):
     selected_model_id: str | None
     budget_usd: float
     max_iterations: int
+    summary: str = ""
 
     class Config:
         from_attributes = True
