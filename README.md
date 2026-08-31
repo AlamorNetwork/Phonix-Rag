@@ -19,7 +19,7 @@ GitHub PR automation, more providers) is deliberately deferred to later phases �
 
 - **Backend**: Python 3.12, FastAPI, SQLAlchemy (async), Alembic, PostgreSQL, Redis, WebSocket
 - **Frontend**: Next.js, React, TypeScript, Tailwind CSS
-- **Infra**: Docker Compose (Postgres, Redis, backend, frontend)
+- **Infra**: Docker Compose (Postgres, Redis, backend, frontend, nginx)
 
 ## Local development
 
@@ -52,6 +52,24 @@ pytest
 
 Tests use an in-memory SQLite database and a mocked model provider — no live API calls or
 external services are required to run the test suite.
+
+## Deploying on a server
+
+```bash
+cp .env.example .env
+# set POSTGRES_PASSWORD, JWT_SECRET, ADMIN_EMAIL/PASSWORD, LIARA_API_KEY
+# set NEXT_PUBLIC_API_BASE=http://<server-ip-or-domain>
+# set NEXT_PUBLIC_WS_BASE=ws://<server-ip-or-domain>
+
+docker compose up -d --build
+```
+
+`nginx` is the only container published on the public interface (port 80 by default, see
+`PUBLIC_HTTP_PORT`); it routes `/api/*` and `/ws/*` to the backend and everything else to the
+frontend (config in `docker/nginx.conf`). Postgres, Redis, backend, and frontend are only bound
+to `127.0.0.1` on the host — reach them directly (for debugging) via an SSH tunnel, not
+directly from the internet. This is plain HTTP; put a domain + TLS (certbot) in front before
+using this for anything beyond testing.
 
 ## Security notes
 
