@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.approvals.service import ApprovalEngine, approval_engine
@@ -44,15 +44,20 @@ class ScriptedProvider(ModelProvider):
 
 @pytest.fixture
 async def db_session_maker(tmp_path: Path):
-    # A real file-backed DB, not a single shared :memory: connection: the orchestrator holds
-    # one session open for the whole run (including while suspended on a human approval) while
-    # the test polls with a second, concurrent session. A single shared in-memory connection
-    # (e.g. via StaticPool) lets those two sessions' statements interleave on the same
-    # connection/cursor state and corrupts SQLAlchemy's bookkeeping (observed as spurious
-    # "Could not refresh instance" errors). Separate connections to the same file avoids that,
-    # matching how the orchestrator's session and an API request's session are genuinely
-    # independent connections against Postgres in production.
+    # These tests run the orchestrator concurrently with a polling "human", so the DB must
+    # support concurrent sessions the way production Postgres does:
+    #   - a file-backed DB, not one shared :memory: connection, so each session really gets
+    #     its own connection instead of interleaving on a single cursor
+    #   - WAL, so the poller's reads don't block the runner's writes (in SQLite's default
+    #     rollback-journal mode they do, and the runner stalls on the busy timeout)
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_wal(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield async_sessionmaker(engine, expire_on_commit=False)
