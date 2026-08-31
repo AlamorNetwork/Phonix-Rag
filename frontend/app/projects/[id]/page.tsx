@@ -35,6 +35,19 @@ export default function ProjectDetailPage() {
     api<Project>(`/projects/${projectId}`).then(setProject).catch(() => {});
     refreshRuns();
     refreshApprovals();
+
+    // Backfill history before the socket takes over. The socket only carries what happens
+    // from now on, so opening a project that has been running for an hour otherwise claimed
+    // nothing had happened at all.
+    api<ForgeEvent[]>(`/events?project_id=${projectId}&limit=100`)
+      .then((history) =>
+        setEvents(
+          [...history]
+            .reverse()
+            .map((e) => ({ ...e, type: (e as unknown as { event_type: string }).event_type })),
+        ),
+      )
+      .catch(() => {});
   }, [projectId]);
 
   useEffect(() => {
