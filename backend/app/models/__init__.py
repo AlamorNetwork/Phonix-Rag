@@ -1,6 +1,7 @@
 from app.models.agent import Agent
 from app.models.agent_run import AgentRun
 from app.models.approval import Approval
+from app.models.control_assessment import ControlAssessment, SecurityControl
 from app.models.model import Model
 from app.models.model_request import ModelRequest
 from app.models.project import Project
@@ -17,6 +18,8 @@ __all__ = [
     "Agent",
     "AgentRun",
     "Approval",
+    "ControlAssessment",
+    "SecurityControl",
     "Model",
     "ModelRequest",
     "Project",
