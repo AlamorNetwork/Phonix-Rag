@@ -45,8 +45,13 @@ class DockerSandboxExecutor(SandboxExecutor):
         pids_limit: int = 128,
         network: str = "none",
         user: str = "",
+        host_workspace_root: Path | None = None,
     ):
         super().__init__(workspace_root)
+        # The daemon runs on the host, so -v must name a path the *host* can see. When this
+        # process is itself in a container, the workspace it reads at /app/workspaces is a
+        # different string on the host, and passing our own path makes every mount fail.
+        self.host_workspace_root = host_workspace_root or workspace_root
         self.image = image
         self.memory = memory
         self.cpus = cpus
@@ -80,7 +85,7 @@ class DockerSandboxExecutor(SandboxExecutor):
             # The workspace is the one writable place, plus a small tmpfs because too much
             # ordinary tooling refuses to run without a writable /tmp.
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
-            "-v", f"{self.workspace_root.resolve()}:{WORKSPACE_MOUNT}:rw",
+            "-v", f"{self.host_workspace_root}:{WORKSPACE_MOUNT}:rw",
             "-w", WORKSPACE_MOUNT,
             *( ["--user", self.user] if self.user else [] ),
             self.image,

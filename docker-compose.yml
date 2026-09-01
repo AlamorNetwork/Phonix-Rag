@@ -41,6 +41,9 @@ services:
       # The ROOTLESS daemon, deliberately. Reaching the rootful socket would mean a compromise
       # of this backend is root on the host; through this one it is only an unprivileged user.
       DOCKER_HOST: ${SANDBOX_DOCKER_HOST:-unix:///var/run/sandbox-docker.sock}
+      # Bind mounts for the sandbox are created by the daemon on the host, so they must be
+      # named in the host filesystem rather than in this container's.
+      WORKSPACES_HOST_DIR: ${WORKSPACES_HOST_DIR:-/opt/phoenix-forge/workspaces}
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     volumes:

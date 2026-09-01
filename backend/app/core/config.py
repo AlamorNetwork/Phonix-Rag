@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # Leave empty under a rootless daemon (container root is already an unprivileged host
     # user); set e.g. "1000:1000" when the daemon is rootful.
     sandbox_user: str = ""
+    # Where workspaces_dir lives on the *host*. The sandbox daemon runs there, so bind mounts
+    # must be named in its filesystem, not in this process's. Leave empty when not running
+    # inside a container.
+    workspaces_host_dir: str = ""
     sandbox_timeout_seconds: float = 120.0
 
 
