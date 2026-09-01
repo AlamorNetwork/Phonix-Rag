@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # The image agents' commands run inside. Deliberately a plain language runtime with no build
 # toolchain and no credentials of any kind.
-SANDBOX_IMAGE = "python:3.12-slim"
+SANDBOX_IMAGE = "phoenix-forge-sandbox:latest"
 
 WORKSPACE_MOUNT = "/workspace"
 

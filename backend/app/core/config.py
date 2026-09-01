@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # anything that executes code needs the container boundary, and tools that do so refuse to
     # run without it rather than quietly falling back.
     sandbox_mode: str = "docker"
-    sandbox_image: str = "python:3.12-slim"
+    sandbox_image: str = "phoenix-forge-sandbox:latest"
     sandbox_memory: str = "512m"
     sandbox_cpus: str = "1.0"
     sandbox_pids_limit: int = 128
