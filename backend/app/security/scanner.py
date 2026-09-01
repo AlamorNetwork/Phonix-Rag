@@ -87,12 +87,10 @@ class DependencyScanner:
         if not packages:
             return {"packages_scanned": 0, "manifests": [], "findings": [], "new": 0, "resolved": 0}
 
+        # lookup() hydrates and enriches before returning; the results arrive fully rated and
+        # already ordered with anything exploited in the wild first.
         result = await self.intel.lookup(packages)
         vulns = result.vulnerabilities
-        if vulns:
-            await self.intel.hydrate(vulns)
-            # Hydration fills in severity and fix versions, which change the ordering.
-            vulns.sort(key=lambda v: (not v.known_exploited, -(v.epss_score or 0.0)))
 
         summary = await self._record(project_id, vulns, agent_run_id, complete=result.complete)
         summary.update(

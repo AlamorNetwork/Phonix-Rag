@@ -88,6 +88,12 @@ class VulnerabilityIntel:
         if not vulns:
             return LookupResult(vulnerabilities=[], complete=True)
 
+        # Hydrate first, and not as an optional extra: querybatch returns only {id, modified},
+        # so until the detail records are fetched a vulnerability has no aliases and therefore
+        # no CVE id. KEV and EPSS both match on CVE id, so enriching before this point matches
+        # nothing at all - silently, which is worse than failing.
+        await self.hydrate(vulns)
+
         # Enrichment is best-effort: a KEV or EPSS outage must not lose the vulnerabilities
         # themselves, only the prioritisation signal.
         await asyncio.gather(

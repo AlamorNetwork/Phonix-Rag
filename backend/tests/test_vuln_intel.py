@@ -125,10 +125,10 @@ def test_cve_is_found_among_aliases():
 async def test_lookup_enriches_with_kev_and_epss():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/querybatch"):
-            return httpx.Response(
-                200,
-                json={"results": [{"vulns": [{"id": "GHSA-1", "aliases": ["CVE-2021-44228"]}]}]},
-            )
+            # As the real API behaves: ids only, no aliases.
+            return httpx.Response(200, json={"results": [{"vulns": [{"id": "GHSA-1", "modified": "x"}]}]})
+        if "/vulns/" in request.url.path:
+            return httpx.Response(200, json={"id": "GHSA-1", "aliases": ["CVE-2021-44228"], "summary": "Log4Shell"})
         if "known_exploited" in str(request.url):
             return httpx.Response(200, json={"vulnerabilities": [{"cveID": "CVE-2021-44228"}]})
         if "epss" in str(request.url):
@@ -149,7 +149,7 @@ async def test_a_kev_outage_does_not_lose_the_vulnerabilities():
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/querybatch"):
-            return httpx.Response(200, json={"results": [{"vulns": [{"id": "GHSA-1", "aliases": []}]}]})
+            return httpx.Response(200, json={"results": [{"vulns": [{"id": "GHSA-1", "modified": "x"}]}]})
         return httpx.Response(500, json={"error": "down"})
 
     intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
@@ -176,11 +176,15 @@ async def test_exploited_vulnerabilities_are_ordered_first():
                 200,
                 json={
                     "results": [
-                        {"vulns": [{"id": "GHSA-quiet", "aliases": ["CVE-2020-1"]}]},
-                        {"vulns": [{"id": "GHSA-hot", "aliases": ["CVE-2021-44228"]}]},
+                        {"vulns": [{"id": "GHSA-quiet", "modified": "x"}]},
+                        {"vulns": [{"id": "GHSA-hot", "modified": "x"}]},
                     ]
                 },
             )
+        if "/vulns/GHSA-quiet" in request.url.path:
+            return httpx.Response(200, json={"id": "GHSA-quiet", "aliases": ["CVE-2020-1"]})
+        if "/vulns/GHSA-hot" in request.url.path:
+            return httpx.Response(200, json={"id": "GHSA-hot", "aliases": ["CVE-2021-44228"]})
         if "known_exploited" in str(request.url):
             return httpx.Response(200, json={"vulnerabilities": [{"cveID": "CVE-2021-44228"}]})
         if "epss" in str(request.url):
@@ -255,3 +259,31 @@ async def test_a_partial_answer_is_not_treated_as_an_answer():
         vi.OSV_BATCH = original
 
     assert result.complete is False
+
+
+async def test_enrichment_survives_querybatch_returning_ids_only():
+    """OSV's querybatch returns {id, modified} and nothing else - no aliases, so no CVE id.
+    KEV and EPSS both match on CVE id, so enriching before fetching the detail records matched
+    nothing at all, silently. This asserts the order that makes them work."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/querybatch"):
+            return httpx.Response(200, json={"results": [{"vulns": [{"id": "GHSA-1", "modified": "x"}]}]})
+        if "/vulns/" in request.url.path:
+            return httpx.Response(
+                200, json={"id": "GHSA-1", "aliases": ["CVE-2021-44228"], "summary": "Log4Shell"}
+            )
+        if "known_exploited" in str(request.url):
+            return httpx.Response(200, json={"vulnerabilities": [{"cveID": "CVE-2021-44228"}]})
+        if "epss" in str(request.url):
+            return httpx.Response(200, json={"data": [{"cve": "CVE-2021-44228", "epss": "0.97"}]})
+        return httpx.Response(404)
+
+    intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
+    result = await intel.lookup([{"name": "log4j", "version": "2.14.1", "ecosystem": "Maven"}])
+
+    v = result.vulnerabilities[0]
+    assert v.cve_id == "CVE-2021-44228", "aliases must be resolved before enrichment"
+    assert v.known_exploited is True, "KEV enrichment must actually match"
+    assert v.epss_score == pytest.approx(0.97), "EPSS enrichment must actually match"
+    assert severity_for(v) == Severity.CRITICAL
