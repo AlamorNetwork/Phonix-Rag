@@ -87,17 +87,27 @@ class DependencyScanner:
         if not packages:
             return {"packages_scanned": 0, "manifests": [], "findings": [], "new": 0, "resolved": 0}
 
-        vulns = await self.intel.lookup(packages)
+        result = await self.intel.lookup(packages)
+        vulns = result.vulnerabilities
         if vulns:
             await self.intel.hydrate(vulns)
             # Hydration fills in severity and fix versions, which change the ordering.
             vulns.sort(key=lambda v: (not v.known_exploited, -(v.epss_score or 0.0)))
 
-        summary = await self._record(project_id, vulns, agent_run_id)
-        summary.update({"packages_scanned": len(packages), "manifests": sources})
+        summary = await self._record(project_id, vulns, agent_run_id, complete=result.complete)
+        summary.update(
+            {
+                "packages_scanned": len(packages),
+                "manifests": sources,
+                "complete": result.complete,
+                "error": result.error,
+            }
+        )
         return summary
 
-    async def _record(self, project_id: str, vulns: list[Vulnerability], agent_run_id: str | None) -> dict:
+    async def _record(
+        self, project_id: str, vulns: list[Vulnerability], agent_run_id: str | None, *, complete: bool
+    ) -> dict:
         seen: set[str] = set()
         reported: list[dict] = []
         new_count = 0
@@ -167,12 +177,15 @@ class DependencyScanner:
                     }
                 )
 
-            # Anything previously open that this scan no longer sees has been dealt with.
+            # Only a scan that actually completed may close anything. On an incomplete scan
+            # the absence of a vulnerability means "we did not find out", not "it is gone" -
+            # closing findings there would report an outage as an all-clear.
             resolved = 0
-            for fp, finding in existing.items():
-                if fp not in seen and finding.status in (FindingStatus.OPEN, FindingStatus.REGRESSED):
-                    finding.status = FindingStatus.FIXED
-                    resolved += 1
+            if complete:
+                for fp, finding in existing.items():
+                    if fp not in seen and finding.status in (FindingStatus.OPEN, FindingStatus.REGRESSED):
+                        finding.status = FindingStatus.FIXED
+                        resolved += 1
 
             await db.commit()
 

@@ -136,7 +136,7 @@ async def test_lookup_enriches_with_kev_and_epss():
         return httpx.Response(404)
 
     intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
-    vulns = await intel.lookup([{"name": "log4j", "version": "2.14.1", "ecosystem": "Maven"}])
+    vulns = (await intel.lookup([{"name": "log4j", "version": "2.14.1", "ecosystem": "Maven"}])).vulnerabilities
 
     assert len(vulns) == 1
     assert vulns[0].known_exploited is True
@@ -153,7 +153,7 @@ async def test_a_kev_outage_does_not_lose_the_vulnerabilities():
         return httpx.Response(500, json={"error": "down"})
 
     intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
-    vulns = await intel.lookup([{"name": "x", "version": "1.0", "ecosystem": "PyPI"}])
+    vulns = (await intel.lookup([{"name": "x", "version": "1.0", "ecosystem": "PyPI"}])).vulnerabilities
 
     assert len(vulns) == 1
     assert vulns[0].known_exploited is False
@@ -164,7 +164,9 @@ async def test_no_packages_means_no_network_calls():
         raise AssertionError("should not have called out for an empty package list")
 
     intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
-    assert await intel.lookup([]) == []
+    result = await intel.lookup([])
+    assert result.vulnerabilities == []
+    assert result.complete is True
 
 
 async def test_exploited_vulnerabilities_are_ordered_first():
@@ -186,11 +188,70 @@ async def test_exploited_vulnerabilities_are_ordered_first():
         return httpx.Response(404)
 
     intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
-    vulns = await intel.lookup(
-        [
-            {"name": "quiet", "version": "1.0", "ecosystem": "PyPI"},
-            {"name": "hot", "version": "2.0", "ecosystem": "PyPI"},
-        ]
-    )
+    vulns = (
+        await intel.lookup(
+            [
+                {"name": "quiet", "version": "1.0", "ecosystem": "PyPI"},
+                {"name": "hot", "version": "2.0", "ecosystem": "PyPI"},
+            ]
+        )
+    ).vulnerabilities
 
     assert [v.id for v in vulns][0] == "GHSA-hot", "what is being exploited must come first"
+
+
+# ---------------------------------------------------------------- unknown is not pass
+
+
+async def test_an_unreachable_database_reports_an_incomplete_scan():
+    """The single most dangerous failure mode here: an empty result from an outage looks
+    exactly like a clean project. Nothing may infer "secure" from "did not find out"."""
+
+    def dead(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": "OSV is down"})
+
+    intel = VulnerabilityIntel(transport=httpx.MockTransport(dead))
+    result = await intel.lookup([{"name": "requests", "version": "2.19.0", "ecosystem": "PyPI"}])
+
+    assert result.complete is False, "an outage must never look like a clean result"
+    assert result.error
+
+
+async def test_a_clean_project_reports_a_complete_scan():
+    def empty(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": [{}]})
+
+    intel = VulnerabilityIntel(transport=httpx.MockTransport(empty))
+    result = await intel.lookup([{"name": "safe", "version": "1.0.0", "ecosystem": "PyPI"}])
+
+    assert result.complete is True
+    assert result.vulnerabilities == []
+
+
+async def test_a_partial_answer_is_not_treated_as_an_answer():
+    """One batch succeeding and another failing would otherwise let everything in the failed
+    batch be silently marked clean."""
+    calls = {"n": 0}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(200, json={"results": [{"vulns": [{"id": "GHSA-1", "aliases": []}]}]})
+        return httpx.Response(500)
+
+    import app.security.vuln_intel as vi
+
+    original = vi.OSV_BATCH
+    vi.OSV_BATCH = 1
+    try:
+        intel = VulnerabilityIntel(transport=httpx.MockTransport(flaky))
+        result = await intel.lookup(
+            [
+                {"name": "a", "version": "1.0", "ecosystem": "PyPI"},
+                {"name": "b", "version": "1.0", "ecosystem": "PyPI"},
+            ]
+        )
+    finally:
+        vi.OSV_BATCH = original
+
+    assert result.complete is False

@@ -18,6 +18,20 @@ OSV_BATCH = 500
 
 
 @dataclass
+class LookupResult:
+    """Whether the lookup actually ran, alongside what it found.
+
+    An empty result means one of two completely different things - the project is clean, or
+    we could not reach the database - and a caller that cannot tell them apart will treat an
+    outage as an all-clear. Nothing may infer "secure" from "did not find out".
+    """
+
+    vulnerabilities: list["Vulnerability"]
+    complete: bool
+    error: str | None = None
+
+
+@dataclass
 class Vulnerability:
     id: str
     package: str
@@ -57,14 +71,22 @@ class VulnerabilityIntel:
     async def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self.timeout, transport=self._transport)
 
-    async def lookup(self, packages: list[dict]) -> list[Vulnerability]:
+    async def lookup(self, packages: list[dict]) -> LookupResult:
         """`packages` is [{"name": ..., "version": ..., "ecosystem": ...}, ...]."""
         if not packages:
-            return []
+            return LookupResult(vulnerabilities=[], complete=True)
 
-        vulns = await self._query_osv(packages)
+        vulns, failures = await self._query_osv(packages)
+        if failures:
+            # A partial answer is not an answer. Reporting what we happened to get would let a
+            # caller conclude that everything else is clean.
+            return LookupResult(
+                vulnerabilities=vulns,
+                complete=False,
+                error=f"{failures} OSV request(s) failed; results are incomplete",
+            )
         if not vulns:
-            return []
+            return LookupResult(vulnerabilities=[], complete=True)
 
         # Enrichment is best-effort: a KEV or EPSS outage must not lose the vulnerabilities
         # themselves, only the prioritisation signal.
@@ -74,9 +96,9 @@ class VulnerabilityIntel:
             return_exceptions=True,
         )
         vulns.sort(key=lambda v: (not v.known_exploited, -(v.epss_score or 0.0)))
-        return vulns
+        return LookupResult(vulnerabilities=vulns, complete=True)
 
-    async def _query_osv(self, packages: list[dict]) -> list[Vulnerability]:
+    async def _query_osv(self, packages: list[dict]) -> tuple[list[Vulnerability], int]:
         queries = [
             {
                 "package": {"name": p["name"], "ecosystem": p.get("ecosystem", "PyPI")},
@@ -86,9 +108,10 @@ class VulnerabilityIntel:
             if p.get("name") and p.get("version")
         ]
         if not queries:
-            return []
+            return [], 0
 
         found: list[Vulnerability] = []
+        failures = 0
         async with await self._client() as client:
             for start in range(0, len(queries), OSV_BATCH):
                 chunk = queries[start : start + OSV_BATCH]
@@ -98,6 +121,7 @@ class VulnerabilityIntel:
                     results = response.json().get("results", [])
                 except Exception:
                     logger.exception("OSV lookup failed for a batch of %d packages", len(chunk))
+                    failures += 1
                     continue
 
                 for query, result in zip(chunk, results):
@@ -114,7 +138,7 @@ class VulnerabilityIntel:
                                 aliases=entry.get("aliases") or [],
                             )
                         )
-        return found
+        return found, failures
 
     async def hydrate(self, vulns: list[Vulnerability]) -> list[Vulnerability]:
         """Fetch the full record for each vulnerability. querybatch returns ids and little
