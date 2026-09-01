@@ -101,6 +101,7 @@ class VulnerabilityIntel:
             self._attach_epss(vulns),
             return_exceptions=True,
         )
+        vulns = _deduplicate(vulns)
         vulns.sort(key=lambda v: (not v.known_exploited, -(v.epss_score or 0.0)))
         return LookupResult(vulnerabilities=vulns, complete=True)
 
@@ -232,3 +233,40 @@ def _fixed_versions(data: dict, package: str) -> list[str]:
 
 
 vuln_intel = VulnerabilityIntel()
+
+
+# Worst-first, so merging two advisories keeps the more serious rating.
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "unknown": 4}
+
+
+def _deduplicate(vulns: list[Vulnerability]) -> list[Vulnerability]:
+    """Collapse advisories that describe the same vulnerability in the same package.
+
+    OSV routinely returns several records for one underlying flaw - a GHSA and a PYSEC entry
+    for the same CVE, for instance - and they do not always agree on severity. Reported
+    separately, the same problem appears twice with two different ratings, which reads as
+    noise and makes the severity counts wrong. Keeping the worst rating is the safe direction
+    to merge in.
+    """
+    merged: dict[tuple, Vulnerability] = {}
+
+    for vuln in vulns:
+        # Only a shared CVE proves two advisories are the same issue. Without one, the
+        # advisory id has to stand on its own rather than being guessed at.
+        key = (vuln.package, vuln.version, vuln.cve_id or vuln.id)
+        current = merged.get(key)
+        if current is None:
+            merged[key] = vuln
+            continue
+
+        if _SEVERITY_RANK.get(vuln.severity, 4) < _SEVERITY_RANK.get(current.severity, 4):
+            current.severity = vuln.severity
+        current.known_exploited = current.known_exploited or vuln.known_exploited
+        if current.epss_score is None:
+            current.epss_score = vuln.epss_score
+        current.aliases = sorted({*current.aliases, *vuln.aliases, vuln.id})
+        current.fixed_versions = sorted({*current.fixed_versions, *vuln.fixed_versions})
+        if len(vuln.summary) > len(current.summary):
+            current.summary = vuln.summary
+
+    return list(merged.values())

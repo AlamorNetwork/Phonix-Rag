@@ -287,3 +287,73 @@ async def test_enrichment_survives_querybatch_returning_ids_only():
     assert v.known_exploited is True, "KEV enrichment must actually match"
     assert v.epss_score == pytest.approx(0.97), "EPSS enrichment must actually match"
     assert severity_for(v) == Severity.CRITICAL
+
+
+async def test_advisories_for_the_same_cve_are_merged():
+    """OSV returns a GHSA and a PYSEC record for the same underlying flaw, and they do not
+    always agree on severity - so the same problem was reported twice, at two different
+    ratings, making the severity counts wrong."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/querybatch"):
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"vulns": [{"id": "GHSA-dup", "modified": "x"}, {"id": "PYSEC-dup", "modified": "x"}]}
+                    ]
+                },
+            )
+        if "/vulns/GHSA-dup" in request.url.path:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "GHSA-dup",
+                    "aliases": ["CVE-2020-14343"],
+                    "summary": "the longer, more useful summary",
+                    "database_specific": {"severity": "critical"},
+                },
+            )
+        if "/vulns/PYSEC-dup" in request.url.path:
+            return httpx.Response(
+                200,
+                json={"id": "PYSEC-dup", "aliases": ["CVE-2020-14343"], "summary": "short",
+                      "database_specific": {"severity": "medium"}},
+            )
+        if "known_exploited" in str(request.url):
+            return httpx.Response(200, json={"vulnerabilities": []})
+        if "epss" in str(request.url):
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(404)
+
+    intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
+    result = await intel.lookup([{"name": "pyyaml", "version": "5.1", "ecosystem": "PyPI"}])
+
+    assert len(result.vulnerabilities) == 1, "one flaw must be reported once"
+    merged = result.vulnerabilities[0]
+    assert merged.severity == "critical", "merging must keep the worse rating"
+    assert "PYSEC-dup" in merged.aliases, "the other advisory id is kept as an alias"
+    assert merged.summary == "the longer, more useful summary"
+
+
+async def test_distinct_vulnerabilities_are_not_merged():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/querybatch"):
+            return httpx.Response(
+                200,
+                json={"results": [{"vulns": [{"id": "GHSA-a", "modified": "x"}, {"id": "GHSA-b", "modified": "x"}]}]},
+            )
+        if "/vulns/GHSA-a" in request.url.path:
+            return httpx.Response(200, json={"id": "GHSA-a", "aliases": ["CVE-1111-1"]})
+        if "/vulns/GHSA-b" in request.url.path:
+            return httpx.Response(200, json={"id": "GHSA-b", "aliases": ["CVE-2222-2"]})
+        if "known_exploited" in str(request.url):
+            return httpx.Response(200, json={"vulnerabilities": []})
+        if "epss" in str(request.url):
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(404)
+
+    intel = VulnerabilityIntel(transport=httpx.MockTransport(handler))
+    result = await intel.lookup([{"name": "p", "version": "1.0", "ecosystem": "PyPI"}])
+
+    assert len(result.vulnerabilities) == 2, "different CVEs are different problems"
