@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ModelPicker } from "@/components/ModelPicker";
 import { PlanPanel } from "@/components/PlanPanel";
+import { CodePanel } from "@/components/CodePanel";
 import { api, Approval, AgentRun, ForgeEvent, getToken, Project, WS_BASE } from "@/lib/api";
 
 export default function ProjectDetailPage() {
@@ -169,6 +170,8 @@ export default function ProjectDetailPage() {
               <div ref={eventsEndRef} />
             </div>
           </section>
+
+          <CodePanel projectId={projectId} refreshKey={planRefreshKey} />
 
           <section className="bg-base-near border border-base-border rounded-lg p-4">
             <div className="text-sm font-medium text-neutral-300 mb-3">Agent Runs</div>
