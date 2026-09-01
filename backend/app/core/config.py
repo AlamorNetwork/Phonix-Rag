@@ -27,6 +27,19 @@ class Settings(BaseSettings):
 
     workspaces_dir: str = "./workspaces"
 
+    # "docker" runs agent commands in a throwaway, network-less container; "host" runs them in
+    # the workspace directory with only a path restriction. Host mode is for development -
+    # anything that executes code needs the container boundary, and tools that do so refuse to
+    # run without it rather than quietly falling back.
+    sandbox_mode: str = "docker"
+    sandbox_image: str = "python:3.12-slim"
+    sandbox_memory: str = "512m"
+    sandbox_cpus: str = "1.0"
+    sandbox_pids_limit: int = 128
+    # Commands get no network by default. Only widen this for a specific, scoped reason.
+    sandbox_network: str = "none"
+    sandbox_timeout_seconds: float = 120.0
+
 
 @lru_cache
 def get_settings() -> Settings:

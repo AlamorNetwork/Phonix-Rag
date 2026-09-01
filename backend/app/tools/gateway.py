@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.approvals.service import ApprovalEngine, approval_engine
+from app.core.config import get_settings
 from app.database.types import new_uuid, utcnow
 from app.events.bus import EventBus, event_bus
 from app.models.tool_execution import ToolExecution
@@ -15,6 +16,8 @@ from app.tools.git_tools import GitCommitTool, GitStatusTool
 from app.tools.model_tools import ModelListTool, ModelSwitchTool
 from app.tools.plan_tools import PLAN_TOOL_SCHEMAS, PlanReadTool, PlanSubmitTool
 from app.tools.sandbox import SandboxExecutor, SandboxViolation
+from app.tools.sandbox_factory import build_sandbox
+from app.tools.terminal_tools import TERMINAL_TOOL_SCHEMAS, TerminalExecTool
 
 TOOL_REGISTRY: dict[str, Tool] = {
     tool.name: tool
@@ -28,6 +31,7 @@ TOOL_REGISTRY: dict[str, Tool] = {
         CostEstimateTool(),
         PlanSubmitTool(),
         PlanReadTool(),
+        TerminalExecTool(),
     )
 }
 
@@ -136,8 +140,10 @@ class ToolGateway:
                     await db.commit()
                 return {"error": f"tool call '{tool_name}' was denied by human approver"}
 
+        settings = get_settings()
         ctx = ToolContext(
-            sandbox=SandboxExecutor(workspace_root),
+            sandbox=build_sandbox(workspace_root, settings),
+            command_timeout=settings.sandbox_timeout_seconds,
             session_maker=session_maker,
             project_id=project_id,
             agent_run_id=agent_run_id,
@@ -204,6 +210,7 @@ def tool_definitions_for(allowed_tools: list[str]) -> list[dict[str, Any]]:
         },
     }
     schemas.update(PLAN_TOOL_SCHEMAS)
+    schemas.update(TERMINAL_TOOL_SCHEMAS)
 
     defs = []
     for name in allowed_tools:

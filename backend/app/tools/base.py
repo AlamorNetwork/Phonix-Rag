@@ -21,6 +21,7 @@ class ToolContext:
     project_id: str
     agent_run_id: str
     agent_id: str | None = None
+    command_timeout: float = 120.0
 
 
 class Tool(ABC):
