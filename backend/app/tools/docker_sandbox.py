@@ -44,6 +44,7 @@ class DockerSandboxExecutor(SandboxExecutor):
         cpus: str = "1.0",
         pids_limit: int = 128,
         network: str = "none",
+        user: str = "",
     ):
         super().__init__(workspace_root)
         self.image = image
@@ -51,6 +52,11 @@ class DockerSandboxExecutor(SandboxExecutor):
         self.cpus = cpus
         self.pids_limit = pids_limit
         self.network = network
+        # Which uid runs inside the container. Empty is right under a rootless daemon, where
+        # container uid 0 is already mapped to an unprivileged host user - forcing a non-root
+        # uid there only maps it into a subuid that cannot write the workspace. Set it
+        # explicitly when talking to a rootful daemon, where container root really is host root.
+        self.user = user
 
     @staticmethod
     def available() -> bool:
@@ -76,7 +82,7 @@ class DockerSandboxExecutor(SandboxExecutor):
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
             "-v", f"{self.workspace_root.resolve()}:{WORKSPACE_MOUNT}:rw",
             "-w", WORKSPACE_MOUNT,
-            "--user", "1000:1000",
+            *( ["--user", self.user] if self.user else [] ),
             self.image,
             *args,
         ]

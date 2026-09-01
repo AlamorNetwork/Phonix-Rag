@@ -38,10 +38,14 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-phoenix}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-phoenix_forge}
       REDIS_URL: redis://redis:6379/0
+      # The ROOTLESS daemon, deliberately. Reaching the rootful socket would mean a compromise
+      # of this backend is root on the host; through this one it is only an unprivileged user.
+      DOCKER_HOST: ${SANDBOX_DOCKER_HOST:-unix:///var/run/sandbox-docker.sock}
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./workspaces:/app/workspaces
+      - ${SANDBOX_DOCKER_SOCK:-/run/user/1000/docker.sock}:/var/run/sandbox-docker.sock
     depends_on:
       postgres:
         condition: service_healthy

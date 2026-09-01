@@ -19,6 +19,7 @@ def build_sandbox(workspace_root: Path, settings: Settings) -> SandboxExecutor:
             cpus=settings.sandbox_cpus,
             pids_limit=settings.sandbox_pids_limit,
             network=settings.sandbox_network,
+            user=settings.sandbox_user,
         )
     return SandboxExecutor(workspace_root)
 

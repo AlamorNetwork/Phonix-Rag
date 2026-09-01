@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     sandbox_pids_limit: int = 128
     # Commands get no network by default. Only widen this for a specific, scoped reason.
     sandbox_network: str = "none"
+    # Leave empty under a rootless daemon (container root is already an unprivileged host
+    # user); set e.g. "1000:1000" when the daemon is rootful.
+    sandbox_user: str = ""
     sandbox_timeout_seconds: float = 120.0
 
 

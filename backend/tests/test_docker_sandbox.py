@@ -64,7 +64,34 @@ async def test_the_container_is_locked_down(tmp_path: Path, monkeypatch):
     assert "--memory-swap" in joined
     # Only the workspace is writable, and it is mounted where the command runs.
     assert f"{tmp_path.resolve()}:/workspace:rw" in joined
-    assert "--user 1000:1000" in joined, "commands must not run as root in the container"
+
+
+async def test_a_rootful_daemon_can_be_told_not_to_run_as_root(tmp_path: Path, monkeypatch):
+    """Against a rootful daemon container root really is host root, so the uid must be
+    forceable. Under rootless it is left alone, because container uid 0 is already mapped to
+    an unprivileged host user and pinning a non-root uid there only maps it to a subuid that
+    cannot write the workspace."""
+    captured: dict = {}
+
+    async def fake_exec(*args, **kwargs):
+        captured["args"] = args
+
+        class Proc:
+            returncode = 0
+
+            async def communicate(self):
+                return b"", b""
+
+        return Proc()
+
+    monkeypatch.setattr(DockerSandboxExecutor, "available", staticmethod(lambda: True))
+    monkeypatch.setattr("asyncio.create_subprocess_exec", fake_exec)
+
+    await DockerSandboxExecutor(tmp_path, user="1000:1000").run_command(["true"])
+    assert "--user 1000:1000" in " ".join(captured["args"])
+
+    await DockerSandboxExecutor(tmp_path).run_command(["true"])
+    assert "--user" not in " ".join(captured["args"])
 
 
 async def test_terminal_refuses_to_run_without_real_isolation(tmp_path: Path):
