@@ -16,31 +16,53 @@ ASVS_JSON_URL = (
     "OWASP_Application_Security_Verification_Standard_5.0.0_en.json"
 )
 
-# Chapters whose requirements are mostly about how something is configured or written, and so
-# are within reach of a static or configuration check. The rest lean on design intent, which
-# an agent can read about but cannot verify.
-_MECHANICAL_CHAPTERS = {"V1", "V3", "V4", "V9", "V11", "V12", "V13", "V16"}
-
-# Wording that marks a requirement as being about documentation, design or human process.
-# These are the ones an agent must hand back rather than guess at.
+# Wording that marks a requirement as being about documentation, design intent or human
+# process. These win over everything below: an agent can read about a threat model, but it
+# cannot verify one.
 _HUMAN_SIGNALS = (
     "documentation",
     "documented",
     "threat model",
     "architecture",
-    "design",
     "business logic",
     "policy",
     "approved by",
     "justif",
+    "risk assessment",
+    "trained",
+    "process is in place",
 )
 
+# Concrete, checkable things a requirement can talk about. Classification keys off these
+# rather than off which chapter a requirement lives in: the chapter says what area it belongs
+# to, not whether the property it asserts is observable. Keying off the chapter routed almost
+# all of Authentication to a human, including "the nonce is at least 64 bits" - which is
+# exactly the kind of thing a machine checks better than a person.
+_CONFIG_SIGNALS = (
+    "header", "tls", "ssl", "cookie", "cipher", "certificate", "configur", "http",
+    "cors", "same-site", "samesite", "secure flag", "httponly", "port", "protocol",
+)
+_DEPENDENCY_SIGNALS = ("dependency", "dependencies", "component", "library", "package", "third-party")
+_CODE_SIGNALS = (
+    "encod", "escap", "sanitiz", "validat", "parameteriz", "hash", "bcrypt", "argon2",
+    "pbkdf2", "scrypt", "signature", "mac ", "token", "session", "timeout", "expir",
+    "random", "entropy", "nonce", "salt", "iteration", "algorithm", "encrypt", "decrypt",
+    "key length", "bits", "characters in length", "rate limit", "logged", "log ",
+    "redirect", "upload", "deserializ", "injection", "query", "permission", "revoke",
+)
 
-def classify_verification(requirement: str, chapter: str) -> list[str]:
+# A stated threshold is the clearest sign of something measurable: "at least 8 characters",
+# "minimum of 128 bits", "no longer than 30 minutes".
+_THRESHOLD_SIGNALS = ("at least", "minimum", "no longer than", "no more than", "at most", "maximum")
+
+
+def classify_verification(requirement: str, chapter: str = "") -> list[str]:
     """How this control could be checked - and therefore whether an agent can check it.
 
     Getting this wrong in the permissive direction is the expensive mistake: an agent that
-    believes it can verify a design requirement will produce a confident, wrong pass.
+    believes it can verify a design requirement will produce a confident, wrong pass. So the
+    human signals override everything, and anything that matches nothing at all still falls
+    through to a human rather than being optimistically claimed as automatable.
     """
     text = requirement.lower()
 
@@ -48,11 +70,11 @@ def classify_verification(requirement: str, chapter: str) -> list[str]:
         return [VerificationMethod.HUMAN_REVIEW]
 
     methods: list[str] = []
-    if any(word in text for word in ("dependency", "component", "library", "package", "version")):
+    if any(word in text for word in _DEPENDENCY_SIGNALS):
         methods.append(VerificationMethod.DEPENDENCY_SCAN)
-    if any(word in text for word in ("header", "tls", "cookie", "cipher", "certificate", "configur")):
+    if any(word in text for word in _CONFIG_SIGNALS):
         methods.append(VerificationMethod.CONFIG_INSPECTION)
-    if chapter in _MECHANICAL_CHAPTERS:
+    if any(word in text for word in _CODE_SIGNALS) or any(t in text for t in _THRESHOLD_SIGNALS):
         methods.append(VerificationMethod.STATIC_ANALYSIS)
 
     # Nothing matched, so nothing here justifies claiming it can be checked automatically.

@@ -233,3 +233,47 @@ def test_digest_identifies_content_without_storing_it():
     assert a == evidence.digest("password = hunter2")
     assert a != evidence.digest("password = hunter3")
     assert "hunter2" not in a
+
+
+# ---------------------------------------------------------------- classification, corrected
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "Verify that the challenge nonce is at least 64 bits in length.",
+        "Verify that user set passwords are at least 8 characters in length.",
+        "Verify that passwords are stored using an approved key derivation function such as argon2.",
+        "Verify that the session timeout is no longer than 30 minutes of inactivity.",
+        "Verify that self-contained tokens are validated using their digital signature.",
+    ],
+)
+def test_measurable_properties_are_not_handed_to_a_human(requirement: str):
+    """Classifying by chapter routed nearly all of Authentication to a person, including
+    "the nonce is at least 64 bits" - which a machine checks better than a person does."""
+    methods = frameworks.classify_verification(requirement, "V6")
+    assert methods != [VerificationMethod.HUMAN_REVIEW], requirement
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "Verify that all communication needs for the application are documented.",
+        "Verify that the threat model is reviewed whenever the architecture changes.",
+        "Verify that business logic limits are implemented per the application's documentation.",
+        "Verify that each exception is justified and approved by the security team.",
+    ],
+)
+def test_design_and_documentation_still_go_to_a_human(requirement: str):
+    """The permissive direction is the expensive one - these must not become automatable
+    just because the vocabulary got broader."""
+    assert frameworks.classify_verification(requirement, "V6") == [VerificationMethod.HUMAN_REVIEW]
+
+
+def test_a_human_signal_beats_a_measurable_one():
+    """A requirement that mentions both must go to a person: 'documented to be at least 8
+    characters' is a claim about documentation, not about the code."""
+    methods = frameworks.classify_verification(
+        "Verify that the documented password policy requires at least 8 characters.", "V6"
+    )
+    assert methods == [VerificationMethod.HUMAN_REVIEW]
