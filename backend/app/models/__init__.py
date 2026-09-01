@@ -6,6 +6,7 @@ from app.models.model_request import ModelRequest
 from app.models.project import Project
 from app.models.project_task import ProjectTask
 from app.models.provider import Provider
+from app.models.security_finding import SecurityFinding
 from app.models.system_event import SystemEvent
 from app.models.tool import Tool
 from app.models.tool_execution import ToolExecution
@@ -21,6 +22,7 @@ __all__ = [
     "Project",
     "ProjectTask",
     "Provider",
+    "SecurityFinding",
     "SystemEvent",
     "Tool",
     "ToolExecution",
